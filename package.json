@@ -39,7 +39,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@kodall/kodall-client": "^0.1.24",
     "archiver": "^7.0.1"
   },
   "devDependencies": {
