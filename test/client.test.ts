@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { KodallNodeClient } from "../src/client/kodall-node-client.js";
 
 describe("KodallNodeClient", () => {
