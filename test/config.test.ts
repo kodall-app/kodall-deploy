@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  findTargetEnvironments,
   loadConfigFile,
   resolveConfig,
   saveConfigFile,
@@ -117,5 +118,34 @@ describe("Config Resolution & Validation", () => {
     fs.writeFileSync(path.join(distDir, "index.html"), "<html><body>Hello</body></html>");
     const check2 = validateDistDirectory(distDir, tempDir);
     expect(check2.valid).toBe(true);
+  });
+
+  it("should filter environments by type, all, or comma-separated list", () => {
+    const config = {
+      web_app_name: "my-app",
+      environments: {
+        "dev-1": { type: "dev", instance: "https://dev1.domain.com" },
+        "dev-2": { type: "dev", instance: "https://dev2.domain.com" },
+        "staging": { type: "staging", instance: "https://staging.domain.com" },
+        "prod-us": { type: "prod", instance: "https://us.domain.com" },
+        "prod-eu": { type: "prod", instance: "https://eu.domain.com" },
+      },
+    };
+
+    // Filter by type: prod
+    const prodEnvs = findTargetEnvironments({ type: "prod" }, config);
+    expect(prodEnvs).toEqual(["prod-us", "prod-eu"]);
+
+    // Filter by type: dev
+    const devEnvs = findTargetEnvironments({ type: "dev" }, config);
+    expect(devEnvs).toEqual(["dev-1", "dev-2"]);
+
+    // Filter all
+    const allEnvs = findTargetEnvironments({ all: true }, config);
+    expect(allEnvs).toEqual(["dev-1", "dev-2", "staging", "prod-us", "prod-eu"]);
+
+    // Filter comma-separated list
+    const listEnvs = findTargetEnvironments({ env: "dev-1, staging, prod-eu" }, config);
+    expect(listEnvs).toEqual(["dev-1", "staging", "prod-eu"]);
   });
 });

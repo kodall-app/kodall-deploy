@@ -111,17 +111,23 @@ Define common defaults at the top level and environment-specific overrides in th
   "default_env": "dev",
   "environments": {
     "dev": {
+      "type": "dev",
       "instance": "https://dev.instance.kodall.ro"
     },
     "staging": {
+      "type": "staging",
       "instance": "https://staging.instance.kodall.ro",
       "api_key": "staging-secret-api-key"
     },
-    "prod": {
-      "instance": "https://app.instance.kodall.ro",
-      "web_app_name": "my-portal-prod",
-      "web_app_path": "production-portal",
-      "api_key": "prod-secret-api-key"
+    "prod-us": {
+      "type": "prod",
+      "instance": "https://us.instance.kodall.ro",
+      "api_key": "us-secret-key"
+    },
+    "prod-eu": {
+      "type": "prod",
+      "instance": "https://eu.instance.kodall.ro",
+      "api_key": "eu-secret-key"
     }
   }
 }
@@ -149,6 +155,7 @@ Legacy `one-deploy` v1.x configurations are supported automatically without modi
 | `instance` | `string` | Base URL of ONE Framework instance (e.g. `https://app.domain.com`). | Yes |
 | `dist_path` | `string` | Local folder containing build assets. Must contain `index.html`. | Optional (default: `./dist`) |
 | `api_key` | `string` | API Key for authentication (bypasses username & password prompt). | Optional |
+| `type` | `string` | Category of environment: `"dev"`, `"staging"`, `"prod"`, `"test"`. | Optional |
 | `default_env` | `string` | Default environment name to use if `--env` is omitted. | Optional (default: `dev`) |
 | `environments` | `object` | Map of environment overrides (`dev`, `staging`, `prod`, etc.). | Optional |
 
@@ -156,7 +163,7 @@ Legacy `one-deploy` v1.x configurations are supported automatically without modi
 
 Parameters are resolved in the following strict order (highest priority first):
 
-1. **CLI Flags**: (`--instance`, `--name`, `--path`, `--dist`, `--user`, `--password`, `--api-key`, `--env`)
+1. **CLI Flags**: (`--instance`, `--name`, `--path`, `--dist`, `--user`, `--password`, `--api-key`, `--env`, `--type`, `--all`)
 2. **Environment Variables**: (`ONE_INSTANCE`, `ONE_APP_NAME`, `ONE_APP_PATH`, `ONE_DIST_PATH`, `ONE_USERNAME`, `ONE_PASSWORD`, `ONE_API_KEY`, `ONE_ENV`)
 3. **Environment Overrides**: Block in `config_web_app.json` under `environments[targetEnv]`
 4. **Top-Level Defaults**: Values in root of `config_web_app.json`
@@ -175,7 +182,9 @@ USAGE:
   $ npx kodall-one-deploy [options]
 
 OPTIONS:
-  -e, --env <name>          Target environment (e.g., dev, staging, prod)
+  -e, --env <name>          Target environment(s) (e.g., dev, prod, or comma-separated "dev,staging")
+  -t, --type <type>         Deploy all environments of given type (e.g., dev, staging, prod)
+      --all                 Deploy to ALL configured environments sequentially
   -i, --instance <url>      Instance base URL (e.g., https://app.domain.com)
   -n, --name <name>         WebApp name in ONE Framework
   -p, --path <path>         URL path where web app is served
@@ -184,6 +193,7 @@ OPTIONS:
   -P, --password <password> ONE Framework login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
   -c, --config <file>       Path to config file [default: config_web_app.json]
+      --add-env [name]      Add or update an environment in config_web_app.json
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
       --init                Interactively generate or update config_web_app.json
@@ -207,19 +217,33 @@ OPTIONS:
 ### Common CLI Examples
 
 ```bash
-# 1. Interactive deployment (prompts if anything is missing)
+# 1. Deploy to all production environments (e.g. prod-us, prod-eu)
+npx one-deploy --type prod
+
+# 2. Deploy to ALL configured environments sequentially
+npx one-deploy --all
+
+# 3. Deploy to specific comma-separated environments
+npx one-deploy -e dev,staging
+
+# 4. Add a new custom environment to config_web_app.json
+npx one-deploy --add-env client-b
+# or interactive wizard
+npx one-deploy --add-env
+
+# 5. Interactive deployment (prompts if anything is missing)
 npx one-deploy
 
-# 2. Deploy to staging using config_web_app.json
+# 6. Deploy to staging using config_web_app.json
 npx one-deploy -e staging
 
-# 3. Deploy to production using API Key
+# 7. Deploy to production using API Key
 npx one-deploy -e prod -k "2aefed1a-9bc8-49b6-8f5a-e825614bb2b0"
 
-# 4. Headless CI deployment with credentials
+# 8. Headless CI deployment with credentials
 npx one-deploy -e prod -u "$ONE_USER" -P "$ONE_PASSWORD" --ci
 
-# 5. Full command-line deployment without any config file
+# 9. Full command-line deployment without any config file
 npx one-deploy \
   --instance "https://app.kodall.ro" \
   --name "my-app" \
@@ -228,7 +252,7 @@ npx one-deploy \
   --api-key "$ONE_API_KEY" \
   --ci
 
-# 6. Dry run verification
+# 10. Dry run verification
 npx one-deploy -e prod --dry-run
 ```
 

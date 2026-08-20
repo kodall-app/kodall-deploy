@@ -2,6 +2,7 @@ export { deploy } from "./core/deployer.js";
 export { createArchive, type ArchiveResult } from "./core/archiver.js";
 export {
   resolveConfig,
+  findTargetEnvironments,
   loadConfigFile,
   saveConfigFile,
   validateDistDirectory,

@@ -63,6 +63,7 @@ export async function askPassword(
           // Ctrl+C
           if (process.stdin.setRawMode) process.stdin.setRawMode(isRaw ?? false);
           process.stdin.removeListener("data", onData);
+          process.stdin.pause();
           process.stdout.write("\n");
           process.exit(130);
         } else if (code === 13 || code === 10) {
@@ -74,6 +75,7 @@ export async function askPassword(
           }
           if (process.stdin.setRawMode) process.stdin.setRawMode(isRaw ?? false);
           process.stdin.removeListener("data", onData);
+          process.stdin.pause();
           process.stdout.write("\n");
           resolve(password);
           return;
@@ -118,7 +120,7 @@ export async function askConfirm(
 }
 
 /**
- * Prompt user to select from a list of choices
+ * Prompt user to select from a list of choices using arrow keys (↑/↓) or numbers
  */
 export async function askSelect(
   question: string,
@@ -132,36 +134,103 @@ export async function askSelect(
     return choices[0];
   }
 
-  const rl = readline.createInterface({ input, output });
-  try {
-    console.log(`${green("?")} ${question}:`);
-    choices.forEach((choice, idx) => {
-      const marker = idx === defaultIndex ? cyan("❯") : " ";
-      console.log(`  ${marker} ${idx + 1}) ${choice}`);
-    });
-
-    while (true) {
-      const promptString = `Enter number ${dim(`(1-${choices.length})`)} [${defaultIndex + 1}]: `;
-      const answer = (await rl.question(promptString)).trim();
-
-      if (!answer) {
-        return choices[defaultIndex];
-      }
-
+  // Non-interactive / CI fallback
+  if (!process.stdin.isTTY || process.env.CI) {
+    const rl = readline.createInterface({ input, output });
+    try {
+      console.log(`${green("?")} ${question}:`);
+      choices.forEach((choice, idx) => {
+        console.log(`  ${idx + 1}) ${choice}`);
+      });
+      const answer = (await rl.question(`Select choice [${defaultIndex + 1}]: `)).trim();
       const num = parseInt(answer, 10);
       if (!isNaN(num) && num >= 1 && num <= choices.length) {
         return choices[num - 1];
       }
+      return choices[defaultIndex];
+    } finally {
+      rl.close();
+    }
+  }
 
-      // Check if user typed the name directly
-      const matched = choices.find((c) => c.toLowerCase() === answer.toLowerCase());
-      if (matched) {
-        return matched;
+  // Interactive TTY arrow key selection
+  return new Promise((resolve) => {
+    let selectedIndex = Math.max(0, Math.min(defaultIndex, choices.length - 1));
+    let hasRendered = false;
+
+    // Hide cursor
+    process.stdout.write("\x1b[?25l");
+
+    const render = () => {
+      if (hasRendered) {
+        // Move cursor up by choices.length lines and clear
+        process.stdout.write(`\x1b[${choices.length}A\r`);
+      } else {
+        console.log(`${green("?")} ${question} ${dim("(Use arrow keys ↑/↓ and Enter to select)")}:`);
+        hasRendered = true;
       }
 
-      console.log(yellow(`Please enter a valid choice between 1 and ${choices.length}`));
+      for (let i = 0; i < choices.length; i++) {
+        const isSelected = i === selectedIndex;
+        const pointer = isSelected ? cyan("❯") : " ";
+        const text = isSelected ? cyan(choices[i]) : dim(choices[i]);
+        process.stdout.write(`\x1b[2K  ${pointer} ${text}\n`);
+      }
+    };
+
+    render();
+
+    const isRaw = process.stdin.isRaw;
+    if (process.stdin.setRawMode) {
+      process.stdin.setRawMode(true);
     }
-  } finally {
-    rl.close();
-  }
+    process.stdin.resume();
+
+    const cleanup = () => {
+      if (process.stdin.setRawMode) {
+        process.stdin.setRawMode(isRaw ?? false);
+      }
+      process.stdin.removeListener("data", onData);
+      process.stdin.pause();
+      // Show cursor
+      process.stdout.write("\x1b[?25h");
+    };
+
+    const onData = (chunk: Buffer) => {
+      const key = chunk.toString();
+
+      if (key === "\u0003") {
+        // Ctrl+C
+        cleanup();
+        process.stdout.write("\n");
+        process.exit(130);
+      } else if (key === "\r" || key === "\n" || key === " ") {
+        // Enter or Space
+        cleanup();
+        // Clear prompt and all choice lines completely
+        for (let i = 0; i <= choices.length; i++) {
+          process.stdout.write("\r\x1b[2K\x1b[1A");
+        }
+        process.stdout.write("\r\x1b[2K");
+        console.log(`${green("?")} ${question}: ${cyan(choices[selectedIndex])}`);
+        resolve(choices[selectedIndex]);
+      } else if (key === "\u001b[A" || key === "k" || key === "K" || key === "w" || key === "W") {
+        // Up arrow
+        selectedIndex = (selectedIndex - 1 + choices.length) % choices.length;
+        render();
+      } else if (key === "\u001b[B" || key === "j" || key === "J" || key === "s" || key === "S") {
+        // Down arrow
+        selectedIndex = (selectedIndex + 1) % choices.length;
+        render();
+      } else {
+        const num = parseInt(key, 10);
+        if (!isNaN(num) && num >= 1 && num <= choices.length) {
+          selectedIndex = num - 1;
+          render();
+        }
+      }
+    };
+
+    process.stdin.on("data", onData);
+  });
 }

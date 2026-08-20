@@ -2,6 +2,7 @@
  * Environment-specific configuration overrides
  */
 export interface EnvironmentConfig {
+  type?: "dev" | "staging" | "prod" | "test" | string;
   instance?: string;
   web_app_name?: string;
   web_app_path?: string;

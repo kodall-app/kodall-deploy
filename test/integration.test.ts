@@ -74,14 +74,15 @@ describe("Full Integration Test (Real HTTP Server + CLI)", () => {
           return;
         }
 
-        // Route: /rest/fetch (POST)
-        if (url.startsWith("/rest/fetch") && req.method === "POST") {
-          // Check if we have matching entity
+        // Route: /rest/fetch (POST - Kodall Query Engine)
+        if (url === "/rest/fetch" && req.method === "POST") {
           const matches: any[] = [];
           for (const [key, entity] of webAppEntities.entries()) {
-            if (bodyStr.includes(entity.properties.name) && bodyStr.includes(entity.properties.path)) {
-              matches.push({ key });
-            }
+            matches.push({
+              key,
+              name: entity.properties?.name,
+              path: entity.properties?.path,
+            });
           }
 
           res.writeHead(200, { "Content-Type": "application/json" });

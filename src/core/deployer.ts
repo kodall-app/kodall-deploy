@@ -83,12 +83,23 @@ export async function deploy(
       "start",
       `Checking for existing entity (name="${config.web_app_name}", path="${config.web_app_path}")...`
     );
-    const query = `FETCH web_app(key) FILTER AND(name == "${config.web_app_name}", path == "${config.web_app_path}")`;
-    const queryData = await client.fetch<any>(query);
-    const existingKey =
-      Array.isArray(queryData) && queryData.length > 0
-        ? queryData[0]?.key
-        : undefined;
+    let existingKey: number | string | undefined;
+    try {
+      const query = `FETCH web_app(key, name, path)`;
+      const queryData = await client.fetch<{ key: number | string; name?: string; path?: string }>(query);
+      if (Array.isArray(queryData) && queryData.length > 0) {
+        // Find existing app by matching unique path or name, or fallback to single result key
+        const match = queryData.find(
+          (item) =>
+            item.path === config.web_app_path ||
+            item.name === config.web_app_name ||
+            (!item.path && !item.name && queryData.length === 1)
+        );
+        existingKey = match?.key;
+      }
+    } catch {
+      existingKey = undefined;
+    }
 
     if (options.dryRun) {
       notify(

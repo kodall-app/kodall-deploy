@@ -46,6 +46,51 @@ export function saveConfigFile(
 }
 
 /**
+ * Find matching environment names by --all, --type, or comma-separated --env
+ */
+export function findTargetEnvironments(
+  filter: { env?: string; type?: string; all?: boolean } = {},
+  config: WebAppConfigFile = {}
+): string[] {
+  if (!config.environments) {
+    return [];
+  }
+
+  const allEnvKeys = Object.keys(config.environments);
+  if (allEnvKeys.length === 0) {
+    return [];
+  }
+
+  if (filter.all) {
+    return allEnvKeys;
+  }
+
+  if (filter.type) {
+    const targetType = filter.type.toLowerCase();
+    return allEnvKeys.filter((key) => {
+      const envObj = config.environments![key];
+      const envType = (
+        envObj.type ||
+        (["dev", "staging", "prod", "test"].includes(key.toLowerCase()) ? key : "")
+      ).toLowerCase();
+      return envType === targetType || key.toLowerCase() === targetType;
+    });
+  }
+
+  if (filter.env) {
+    if (filter.env.includes(",")) {
+      return filter.env
+        .split(",")
+        .map((s) => s.trim())
+        .filter((name) => allEnvKeys.includes(name));
+    }
+    return [filter.env];
+  }
+
+  return [];
+}
+
+/**
  * Resolve deployment parameters applying full priority hierarchy
  */
 export function resolveConfig(
