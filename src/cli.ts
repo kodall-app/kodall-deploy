@@ -1,6 +1,11 @@
 import { parseArgs } from "node:util";
 import { checkBuildStatus, runBuild } from "./core/build-check.js";
 import {
+  detectExistingCIProvider,
+  detectPackageManager,
+  generateCIWorkflow,
+} from "./core/ci-generator.js";
+import {
   DEFAULT_CONFIG_FILENAME,
   findTargetEnvironments,
   loadConfigFile,
@@ -20,6 +25,8 @@ import { getDeploymentHistory } from "./core/history.js";
 import { rollback } from "./core/rollback.js";
 import { checkAllEnvironmentsStatus } from "./core/status.js";
 import {
+  CIEnvironmentMapping,
+  CIProvider,
   DeploymentRecord,
   DeployOptions,
   RemoteEnvironmentStatus,
@@ -62,7 +69,12 @@ ${bold("OPTIONS:")}
       --build               Force running "npm run build" before deploying
       --no-build            Skip build check and build prompts
       --no-health-check     Skip post-deployment live HTTP health check ping
+      --init-ci             Generate CI/CD pipeline (GitHub Actions, GitLab CI, Bitbucket)
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
+      --dry-run             Validate build, test auth and query entity without mutating
+      --init                Interactively generate or update config_web_app.json
+  -v, --version             Display CLI version
+  -h, --help                Display this help message
       --dry-run             Validate build, test auth and query entity without mutating
       --init                Interactively generate or update config_web_app.json
   -v, --version             Display CLI version
@@ -256,6 +268,7 @@ async function main() {
     "no-build": { type: "boolean" as const, default: false },
     "health-check": { type: "boolean" as const, default: true },
     "no-health-check": { type: "boolean" as const, default: false },
+    "init-ci": { type: "boolean" as const, default: false },
     ci: { type: "boolean" as const, default: false },
     "non-interactive": { type: "boolean" as const, default: false },
     "dry-run": { type: "boolean" as const, default: false },
@@ -346,6 +359,12 @@ async function main() {
     return;
   }
 
+  // Handle --init-ci command
+  if (flags["init-ci"]) {
+    await handleInitCI(configPath);
+    return;
+  }
+
   // Handle --init command
   if (flags.init) {
     await handleInit(configPath);
@@ -396,6 +415,7 @@ async function main() {
         "⏮️  Rollback to a previous build",
         "📊 Live remote status dashboard",
         "⚙️  Manage environments",
+        "🤖 Generate CI/CD deployment workflow",
       ];
       const BACK_OPTION = "↩ Back";
 
@@ -454,6 +474,9 @@ async function main() {
           continue;
         } else if (mode === "⚙️  Manage environments") {
           await handleManageEnvs(configPath);
+          continue;
+        } else if (mode === "🤖 Generate CI/CD deployment workflow") {
+          await handleInitCI(configPath);
           continue;
         } else if (mode === "Custom one-off deployment") {
           console.log(dim("\nEnter custom deployment parameters:\n"));
@@ -1487,6 +1510,87 @@ async function handleManageEnvs(configPath: string) {
       await handleSetDefault(configPath);
     }
   }
+}
+
+async function handleInitCI(configPath: string) {
+  console.log(bold("\n🤖 Generate CI/CD Deployment Workflow:\n"));
+
+  const detectedProvider = detectExistingCIProvider(process.cwd()) || "github";
+  const detectedPM = detectPackageManager(process.cwd());
+
+  const providerChoices = [
+    "GitHub Actions (.github/workflows/one-deploy.yml)",
+    "GitLab CI (.gitlab-ci.yml)",
+    "Bitbucket Pipelines (bitbucket-pipelines.yml)",
+  ];
+
+  const defaultProviderIdx =
+    detectedProvider === "gitlab" ? 1 : detectedProvider === "bitbucket" ? 2 : 0;
+
+  const chosenProviderStr = await askSelect(
+    "Select your CI/CD platform:",
+    providerChoices,
+    defaultProviderIdx
+  );
+
+  const provider: CIProvider = chosenProviderStr.startsWith("GitHub")
+    ? "github"
+    : chosenProviderStr.startsWith("GitLab")
+    ? "gitlab"
+    : "bitbucket";
+
+  const { fileExists, config } = loadConfigFile(configPath);
+  const envKeys = config.environments ? Object.keys(config.environments) : [];
+
+  if (!fileExists || envKeys.length === 0) {
+    log.error(`No environments found in ${configPath}. Please run "one-deploy --init" first.`);
+    return;
+  }
+
+  console.log(dim("\nConfigure Git branch mapping for each deployment environment:"));
+  const mappings: CIEnvironmentMapping[] = [];
+
+  for (const envName of envKeys) {
+    const defaultBranch =
+      envName.toLowerCase().includes("prod")
+        ? "main"
+        : envName.toLowerCase().includes("stage") || envName.toLowerCase().includes("staging")
+        ? "staging"
+        : "develop";
+
+    const branch = await askText(
+      `Trigger branch for environment "${envName}" (press Enter to skip)`,
+      defaultBranch,
+      false
+    );
+
+    if (branch && branch.trim()) {
+      mappings.push({ envName, branch: branch.trim() });
+    }
+  }
+
+  if (mappings.length === 0) {
+    log.warn("No branches configured. Deployment workflow generation cancelled.");
+    return;
+  }
+
+  const result = generateCIWorkflow(
+    {
+      provider,
+      mappings,
+      packageManager: detectedPM,
+    },
+    process.cwd()
+  );
+
+  console.log("");
+  log.success(bold(green(`CI/CD workflow file created at ${result.filePath}!`)));
+  console.log("");
+  console.log(bold(cyan("🔑 Required CI/CD Repository Secrets:")));
+  console.log(dim("  Configure these environment variables / secrets in your repository settings:"));
+  console.log(`    ${cyan("▸")} ${bold("ONE_API_KEY")}:   Your ONE Framework / Kodall API authentication key`);
+  console.log(`    ${cyan("▸")} ${bold("ONE_INSTANCE")}: Base instance URL (e.g. ${config.instance || "https://instance.kodall.ro"})`);
+  console.log("");
 }
 
 main()

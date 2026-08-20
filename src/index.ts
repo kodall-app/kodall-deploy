@@ -35,6 +35,14 @@ export {
   checkAllEnvironmentsStatus,
   classifyHealthState,
 } from "./core/status.js";
+export {
+  generateCIWorkflow,
+  generateGitHubActionsWorkflow,
+  generateGitLabCIWorkflow,
+  generateBitbucketPipelinesWorkflow,
+  detectPackageManager,
+  detectExistingCIProvider,
+} from "./core/ci-generator.js";
 export { detectFramework, sanitizeProjectName } from "./core/detector.js";
 export * from "./core/types.js";
 export * from "./client/types.js";

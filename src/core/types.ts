@@ -198,4 +198,43 @@ export interface RemoteEnvironmentStatus {
   error?: string;
 }
 
+/**
+ * Supported CI/CD pipeline providers
+ */
+export type CIProvider = "github" | "gitlab" | "bitbucket";
+
+/**
+ * Detected or specified Node.js package manager
+ */
+export type PackageManagerType = "npm" | "pnpm" | "yarn" | "bun";
+
+/**
+ * Mapping between a Git branch and a configured deployment environment
+ */
+export interface CIEnvironmentMapping {
+  envName: string;
+  branch: string;
+}
+
+/**
+ * Options for generating a CI/CD workflow file
+ */
+export interface CIWorkflowOptions {
+  provider: CIProvider;
+  mappings: CIEnvironmentMapping[];
+  packageManager?: PackageManagerType;
+  nodeVersion?: string;
+  workflowName?: string;
+}
+
+/**
+ * Result of generating a CI/CD workflow file
+ */
+export interface CIWorkflowResult {
+  provider: CIProvider;
+  filePath: string;
+  content: string;
+  secrets: string[];
+}
+
 
