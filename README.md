@@ -1,6 +1,6 @@
 # kodall-one-deploy
 
-A fast, modern CLI tool and TypeScript library to package, bundle, and deploy web applications to ONE Framework / Kodall instances with multi-environment support, session cookie / CSRF handling, and zero-dependency runtime footprint.
+A fast, modern CLI tool and TypeScript library to package, bundle, and deploy web applications to ONE Framework / Kodall instances with multi-environment support, framework auto-detection, instant rollbacks, live health monitoring, and zero runtime dependencies.
 
 [**Explore the docs »**](https://developer.oneerp.ro/)
 
@@ -9,41 +9,44 @@ A fast, modern CLI tool and TypeScript library to package, bundle, and deploy we
 1. [Features](#features)
 2. [Installation](#installation)
 3. [Quick Start](#quick-start)
-4. [Configuration (`config_web_app.json`)](#configuration-config_web_appjson)
+4. [Framework Auto-Detection](#framework-auto-detection)
+5. [Configuration (`config_web_app.json`)](#configuration-config_web_appjson)
    - [Multi-Environment Configuration](#multi-environment-configuration)
-   - [Legacy Flat Configuration (Backward Compatible)](#legacy-flat-configuration-backward-compatible)
    - [Configuration Fields Reference](#configuration-fields-reference)
    - [Resolution & Priority Order](#resolution--priority-order)
-5. [CLI Usage](#cli-usage)
+6. [CLI Usage](#cli-usage)
    - [Commands & Options](#commands--options)
    - [Environment Variables](#environment-variables)
    - [Common CLI Examples](#common-cli-examples)
-6. [Programmatic API](#programmatic-api)
-   - [`deploy(options)`](#deployoptions)
-   - [`DeployOptions` Interface](#deployoptions-interface)
-   - [`DeployResult` Interface](#deployresult-interface)
-7. [TypeScript Types](#typescript-types)
-8. [CI / CD Pipeline Integration](#ci--cd-pipeline-integration)
-   - [Bitbucket Pipelines](#bitbucket-pipelines)
-   - [GitHub Actions](#github-actions)
-   - [GitLab CI](#gitlab-ci)
-9. [Troubleshooting & FAQ](#troubleshooting--faq)
-10. [License](#license)
+7. [Environment Management](#environment-management)
+8. [Live Remote Status Dashboard](#live-remote-status-dashboard)
+9. [Deployment History & Instant Rollback](#deployment-history--instant-rollback)
+10. [CI / CD Pipeline Integration (`--init-ci`)](#ci--cd-pipeline-integration---init-ci)
+11. [Programmatic API](#programmatic-api)
+    - [`deploy(options)`](#deployoptions)
+    - [`rollback(options)`](#rollbackoptions)
+    - [`listEnvironments(configPath)`](#listenvironmentsconfigpath)
+    - [`checkAllEnvironmentsStatus(configPath)`](#checkallenvironmentsstatusconfigpath)
+12. [TypeScript Types](#typescript-types)
+13. [Troubleshooting & FAQ](#troubleshooting--faq)
+14. [License](#license)
 
 ---
 
 ## Features
 
-* ⚡ **Ultra-Lean Runtime**: Built on native Node 18+ capabilities (`fetch`, `FormData`, `Blob`, `util.parseArgs`, `readline`).
-* 🌍 **Multi-Environment Support**: Target `dev`, `staging`, `prod`, and custom environments from a single configuration file.
-* 🔐 **Flexible Authentication**:
-  * Username & Password (with automatic session cookie management and `X-CSRF-TOKEN` extraction).
-  * API Key / Security Token (`api_key` in config, `--api-key` flag, or `ONE_API_KEY` env var).
-* 🛡️ **Zero Workspace Pollution**: Compresses archives inside OS temporary directories with guaranteed auto-cleanup.
-* 🤖 **CI/CD & Headless Ready**: CLI flags & environment variables allow 100% headless, non-interactive execution (`--ci`).
-* 🧪 **Dry-Run Mode**: Validate files, authentication, and entity existence without uploading or mutating data (`--dry-run`).
-* 🔄 **Smart Entity Operations**: Automatically queries `FETCH web_app` and either creates or updates the entity.
-* 📦 **Dual Output**: Use as a global/local CLI (`one-deploy`, `kodall-deploy`) or import as a TypeScript/ESM/CJS library.
+* ⚡ **Framework Auto-Detection**: Instant zero-config setup detecting Vite, Next.js, Nuxt, Vue, Angular, SvelteKit, Remix, Astro, and Static HTML.
+* 🔨 **Stale & Missing Build Detection**: Checks if source code was modified after the last build and offers one-click rebuild before deploying.
+* 🩺 **Post-Deploy Live Health Check**: Automatically pings your live endpoint after deploy to verify `200 OK` status and display server latency.
+* 📜 **Deployment History & Instant Rollback**: Sub-second rollback to any previous storage build (`--rollback`) with zero rebuild or re-upload.
+* ⚙️ **Environment Management Suite**: Add, remove, clone, list, and set default environments directly from CLI flags or interactive menus.
+* 📊 **Live Remote Status Dashboard**: Inspect live server availability, active storage IDs, and response latency across all instances simultaneously (`--status`).
+* 🤖 **CI/CD Workflow Generator**: Generate ready-to-run automated pipeline files for GitHub Actions, GitLab CI, or Bitbucket Pipelines (`--init-ci`).
+* 🌍 **Multi-Environment Batch Deployments**: Deploy to specific environments (`-e dev,staging`), categories (`--type prod`), or all servers sequentially (`--all`).
+* 🔐 **Flexible Authentication**: Supports API Key tokens and Username/Password with automatic session and CSRF handling.
+* 🧪 **Dry-Run Mode**: Test configurations, authentication, and server routes without uploading or mutating files (`--dry-run`).
+* 🛡️ **Zero Workspace Pollution**: Temp archives are created in OS temporary folders and cleaned up automatically.
+* 📦 **CLI & Library**: Use as an interactive or headless CLI (`npx one-deploy`) or import as a TypeScript/ESM/CJS library.
 
 ---
 [↑ back to top](#kodall-one-deploy)
@@ -73,7 +76,7 @@ npx one-deploy [options]
 ## Quick Start
 
 ### 1. Initialize Configuration
-Run the interactive wizard to generate `config_web_app.json`:
+Run the interactive wizard to detect your framework and generate `config_web_app.json`:
 
 ```bash
 npx one-deploy --init
@@ -81,7 +84,7 @@ npx one-deploy --init
 
 ### 2. Deploy Web App
 ```bash
-# Interactive or default environment
+# Interactive menu or default environment
 npx one-deploy
 
 # Deploy to specific environment
@@ -91,6 +94,25 @@ npx one-deploy -e prod
 # Dry run (test config & auth without deploying)
 npx one-deploy -e prod --dry-run
 ```
+
+---
+[↑ back to top](#kodall-one-deploy)
+
+## Framework Auto-Detection
+
+When running `--init`, `--add-env`, or custom deployments, `kodall-one-deploy` automatically inspects your project layout and dependencies:
+
+| Framework | Detected Output Directory |
+|---|---|
+| **Vite** / **Vue** | `./dist` |
+| **Next.js (Static)** | `./out` |
+| **Angular** | `./dist/<project-name>` |
+| **SvelteKit** | `./build` |
+| **Nuxt (Static)** | `./.output/public` |
+| **Remix** | `./build/client` |
+| **Create React App** | `./build` |
+| **Astro** | `./dist` |
+| **Static HTML** | `.` |
 
 ---
 [↑ back to top](#kodall-one-deploy)
@@ -119,30 +141,12 @@ Define common defaults at the top level and environment-specific overrides in th
       "instance": "https://staging.instance.kodall.ro",
       "api_key": "staging-secret-api-key"
     },
-    "prod-us": {
+    "prod": {
       "type": "prod",
-      "instance": "https://us.instance.kodall.ro",
-      "api_key": "us-secret-key"
-    },
-    "prod-eu": {
-      "type": "prod",
-      "instance": "https://eu.instance.kodall.ro",
-      "api_key": "eu-secret-key"
+      "instance": "https://app.kodall.ro",
+      "api_key": "prod-secret-api-key"
     }
   }
-}
-```
-
-### Legacy Flat Configuration (Backward Compatible)
-
-Legacy `one-deploy` v1.x configurations are supported automatically without modification:
-
-```json
-{
-  "web_app_name": "my-portal",
-  "web_app_path": "my-portal",
-  "instance": "https://dev.instance.kodall.ro",
-  "dist_path": "./dist"
 }
 ```
 
@@ -150,7 +154,7 @@ Legacy `one-deploy` v1.x configurations are supported automatically without modi
 
 | Field | Type | Description | Required |
 |---|---|---|---|
-| `web_app_name` | `string` | Entity name in ONE Framework / Kodall. | Yes |
+| `web_app_name` | `string` | WebApp entity name in ONE Framework / Kodall. | Yes |
 | `web_app_path` | `string` | URL route where web app is served (auto-prefixed with `/`). | Yes |
 | `instance` | `string` | Base URL of ONE Framework instance (e.g. `https://app.domain.com`). | Yes |
 | `dist_path` | `string` | Local folder containing build assets. Must contain `index.html`. | Optional (default: `./dist`) |
@@ -193,9 +197,18 @@ OPTIONS:
   -P, --password <password> ONE Framework login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
   -c, --config <file>       Path to config file [default: config_web_app.json]
+  -l, --list-envs           List all configured environments in a table
+  -s, --status [env]        Display live status & health dashboard for environment(s)
       --add-env [name]      Add or update an environment in config_web_app.json
+      --remove-env [name]   Remove an environment from configuration
+      --clone-env <src> [dst] Duplicate/clone an existing environment
+      --set-default <name>  Set default deployment environment
   -H, --history             Display deployment history for environment(s)
   -R, --rollback [storage]  Roll back web application to a previous storage build
+      --build               Force running "npm run build" before deploying
+      --no-build            Skip build check and build prompts
+      --no-health-check     Skip post-deployment live HTTP health check ping
+      --init-ci             Generate CI/CD pipeline (GitHub Actions, GitLab CI, Bitbucket)
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
       --init                Interactively generate or update config_web_app.json
@@ -219,150 +232,227 @@ OPTIONS:
 ### Common CLI Examples
 
 ```bash
-# 1. Deploy to all production environments (e.g. prod-us, prod-eu)
-npx one-deploy --type prod
-
-# 2. Deploy to ALL configured environments sequentially
-npx one-deploy --all
-
-# 3. View deployment history for production
-npx one-deploy -H -e prod
-
-# 4. Roll back production to a previous build interactively
-npx one-deploy --rollback -e prod
-
-# 5. Roll back directly to a specific Storage ID (sub-second zero-build restore)
-npx one-deploy --rollback 137 -e prod
-
-# 6. Deploy to specific comma-separated environments
-npx one-deploy -e dev,staging
-
-# 7. Add a new custom environment to config_web_app.json
-npx one-deploy --add-env client-b
-# or interactive wizard
-npx one-deploy --add-env
-
-# 8. Interactive deployment (prompts if anything is missing)
+# 1. Open main interactive menu
 npx one-deploy
 
-# 9. Deploy to staging using config_web_app.json
-npx one-deploy -e staging
+# 2. Deploy to specific environment
+npx one-deploy -e prod
 
-# 10. Deploy to production using API Key
-npx one-deploy -e prod -k "2aefed1a-9bc8-49b6-8f5a-e825614bb2b0"
+# 3. Deploy to all production environments (e.g. prod-us, prod-eu)
+npx one-deploy --type prod
+
+# 4. Deploy to ALL configured environments sequentially
+npx one-deploy --all
+
+# 5. List configured environments
+npx one-deploy -l
+
+# 6. Check live remote status dashboard across all servers
+npx one-deploy -s
+
+# 7. View deployment history for production
+npx one-deploy -H -e prod
+
+# 8. Roll back production to a previous build interactively
+npx one-deploy --rollback -e prod
+
+# 9. Roll back directly to Storage ID 137 (instant restore)
+npx one-deploy --rollback 137 -e prod
+
+# 10. Generate CI/CD workflow for GitHub Actions / GitLab / Bitbucket
+npx one-deploy --init-ci
 
 # 11. Headless CI deployment with credentials
 npx one-deploy -e prod -u "$ONE_USER" -P "$ONE_PASSWORD" --ci
 
-# 12. Full command-line deployment without any config file
-npx one-deploy \
-  --instance "https://app.kodall.ro" \
-  --name "my-app" \
-  --path "/my-app" \
-  --dist "./build" \
-  --api-key "$ONE_API_KEY" \
-  --ci
-
-# 13. Dry run verification
+# 12. Dry run verification
 npx one-deploy -e prod --dry-run
 ```
 
 ---
 [↑ back to top](#kodall-one-deploy)
 
-## Instant Rollback API
+## Environment Management
 
-In addition to `deploy()`, you can programmatic rollback any web application:
+Manage environments without manually editing JSON files:
 
-```typescript
-import { rollback, getDeploymentHistory } from "kodall-one-deploy";
+```bash
+# List all configured environments with default indicator, type, and auth mode
+npx one-deploy --list-envs
 
-// View previous deployments
-const history = getDeploymentHistory(process.cwd(), "prod");
-console.log("Previous builds:", history);
+# Add or update an environment
+npx one-deploy --add-env uat
 
-// Roll back to previous build
-const result = await rollback({
-  env: "prod",
-  stepsBack: 1, // or targetStorageId: 137
-  apiKey: process.env.ONE_API_KEY,
-});
+# Clone / duplicate an existing environment
+npx one-deploy --clone-env dev dev2
 
-console.log(`Rolled back to storage ID: ${result.toStorageId}`);
+# Set default deployment environment
+npx one-deploy --set-default prod
+
+# Remove an environment
+npx one-deploy --remove-env dev2
 ```
+
+---
+[↑ back to top](#kodall-one-deploy)
+
+## Live Remote Status Dashboard
+
+Inspect live availability, response latency, active storage IDs, and entity status across all configured instances:
+
+```bash
+npx one-deploy --status
+# or for a specific environment
+npx one-deploy --status prod
+```
+
+Output:
+```text
+📊 Live Remote Environment Status:
+
+  DEFAULT   ENV NAME        HEALTH          HTTP CODE       LATENCY     STORAGE ID    ENTITY KEY    ROUTE PATH          INSTANCE URL
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ★         dev             ● ONLINE        200 OK          112ms       144           102           /my-app             https://dev.kodall.ro
+            prod            ● ONLINE        200 OK           85ms       139           94            /my-app             https://app.kodall.ro
+```
+
+---
+[↑ back to top](#kodall-one-deploy)
+
+## Deployment History & Instant Rollback
+
+Every successful deployment is tracked in `.one-deploy/history.json`.
+
+```bash
+# View deployment history
+npx one-deploy --history
+npx one-deploy -H -e prod
+
+# Interactive rollback
+npx one-deploy --rollback -e prod
+
+# Instant direct rollback by Storage ID
+npx one-deploy --rollback 144 -e prod
+```
+
+---
+[↑ back to top](#kodall-one-deploy)
+
+## CI / CD Pipeline Integration (`--init-ci`)
+
+Run `npx one-deploy --init-ci` to automatically generate ready-to-use workflows for your CI platform.
+
+### GitHub Actions (`.github/workflows/one-deploy.yml`)
+
+```yaml
+name: Deploy to ONE Framework
+
+on:
+  push:
+    branches: ["develop", "main"]
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Deploy to ONE Framework / Kodall
+        env:
+          ONE_API_KEY: ${{ secrets.ONE_API_KEY }}
+          ONE_INSTANCE: ${{ secrets.ONE_INSTANCE }}
+        run: |
+          case "${{ github.ref_name }}" in
+            "develop") npx kodall-one-deploy --ci -e dev ;;
+            "main") npx kodall-one-deploy --ci -e prod ;;
+            *) echo "No deployment mapping found for branch ${{ github.ref_name }}" && exit 1 ;;
+          esac
+```
+
+---
+[↑ back to top](#kodall-one-deploy)
 
 ## Programmatic API
 
-You can use `kodall-one-deploy` directly inside custom build scripts, release automations, or Node.js tools:
+Use `kodall-one-deploy` directly inside custom build scripts, release automations, or Node.js tools:
 
 ```typescript
-import { deploy } from "kodall-one-deploy";
+import {
+  deploy,
+  rollback,
+  listEnvironments,
+  checkAllEnvironmentsStatus,
+  getDeploymentHistory,
+} from "kodall-one-deploy";
 ```
 
 ### `deploy(options)`
 
-Coordinates the full deployment lifecycle (configuration resolution, `dist/index.html` validation, zip compression, authentication, storage upload, and entity create/update).
+Coordinates the full deployment lifecycle:
 
 ```typescript
 import { deploy, DeployResult } from "kodall-one-deploy";
 
-try {
-  const result: DeployResult = await deploy({
-    instance: "https://dev.instance.kodall.ro",
-    webAppName: "my-portal",
-    webAppPath: "/my-portal",
-    distPath: "./dist",
-    username: "root",
-    password: "secretpassword",
-    // or apiKey: "your-api-key",
-    dryRun: false,
-    onProgress: (step, status, message) => {
-      console.log(`[${step}] ${status}: ${message}`);
-    },
-  });
+const result: DeployResult = await deploy({
+  instance: "https://dev.instance.kodall.ro",
+  webAppName: "my-portal",
+  webAppPath: "/my-portal",
+  distPath: "./dist",
+  apiKey: process.env.ONE_API_KEY,
+  onProgress: (step, status, message) => {
+    console.log(`[${step}] ${status}: ${message}`);
+  },
+});
 
-  console.log("Success:", result.action, "Entity Key:", result.entityKey, "Storage ID:", result.storageId);
-} catch (error) {
-  console.error("Deployment failed:", error);
-}
+console.log("Success:", result.action, "Storage ID:", result.storageId);
 ```
 
-### `DeployOptions` Interface
+### `rollback(options)`
+
+Restores a web application to a previous storage build without re-uploading:
 
 ```typescript
-interface DeployOptions {
-  configPath?: string;
-  env?: string;
-  instance?: string;
-  webAppName?: string;
-  webAppPath?: string;
-  distPath?: string;
-  username?: string;
-  password?: string;
-  apiKey?: string;
-  ci?: boolean;
-  dryRun?: boolean;
-  silent?: boolean;
-  onProgress?: (
-    step: string,
-    status: "start" | "success" | "warn" | "error" | "info",
-    message?: string
-  ) => void;
-}
+import { rollback } from "kodall-one-deploy";
+
+const result = await rollback({
+  env: "prod",
+  targetStorageId: 144, // or stepsBack: 1
+  apiKey: process.env.ONE_API_KEY,
+});
+
+console.log(`Restored Storage ID: ${result.toStorageId}`);
 ```
 
-### `DeployResult` Interface
+### `listEnvironments(configPath)`
 
 ```typescript
-interface DeployResult {
-  success: boolean;
-  storageId?: number | string;
-  entityKey?: number | string;
-  action?: "created" | "updated" | "dry-run";
-  durationMs: number;
-  archiveSizeBytes?: number;
-  error?: Error | string;
-}
+import { listEnvironments } from "kodall-one-deploy";
+
+const envs = listEnvironments("config_web_app.json");
+console.log(envs);
+```
+
+### `checkAllEnvironmentsStatus(configPath)`
+
+```typescript
+import { checkAllEnvironmentsStatus } from "kodall-one-deploy";
+
+const statuses = await checkAllEnvironmentsStatus("config_web_app.json");
+console.log(statuses);
 ```
 
 ---
@@ -376,89 +466,20 @@ Exported TypeScript interfaces:
 import type {
   DeployOptions,
   DeployResult,
+  RollbackOptions,
+  RollbackResult,
+  DeploymentRecord,
+  EnvironmentInfo,
+  RemoteEnvironmentStatus,
+  CIWorkflowOptions,
+  CIWorkflowResult,
   ResolvedConfig,
   WebAppConfigFile,
   EnvironmentConfig,
-  ArchiveResult,
+  DetectedProject,
+  BuildCheckResult,
+  HealthCheckResult,
 } from "kodall-one-deploy";
-```
-
----
-[↑ back to top](#kodall-one-deploy)
-
-## CI / CD Pipeline Integration
-
-### Bitbucket Pipelines
-
-```yaml
-# bitbucket-pipelines.yml
-image: node:20
-
-pipelines:
-  branches:
-    master:
-      - step:
-          name: Build & Deploy to Production
-          caches:
-            - node
-          script:
-            - npm ci
-            - npm run build
-            - npx kodall-one-deploy -e prod --ci
-          deployment: production
-```
-
-### GitHub Actions
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy WebApp
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install & Build
-        run: |
-          npm ci
-          npm run build
-
-      - name: Deploy to ONE Framework
-        env:
-          ONE_API_KEY: ${{ secrets.ONE_API_KEY }}
-        run: |
-          npx kodall-one-deploy -e prod --ci
-```
-
-### GitLab CI
-
-```yaml
-# .gitlab-ci.yml
-image: node:20
-
-stages:
-  - deploy
-
-deploy_production:
-  stage: deploy
-  only:
-    - main
-  script:
-    - npm ci
-    - npm run build
-    - npx kodall-one-deploy -e prod -u "$ONE_USERNAME" -P "$ONE_PASSWORD" --ci
 ```
 
 ---
@@ -467,20 +488,16 @@ deploy_production:
 ## Troubleshooting & FAQ
 
 ### `Create error: Path must start with '/'`
-* **Cause**: ONE Framework routes require a leading slash (`/my-app`).
 * **Fix**: `kodall-one-deploy` automatically prefixes your `web_app_path` with `/` if omitted.
 
 ### `Missing index.html in build directory`
-* **Cause**: `dist_path` does not contain `index.html`.
-* **Fix**: Verify your build output folder (e.g. `dist`, `build`, `out`) and ensure `npm run build` has run before deploying.
+* **Fix**: Run `npm run build` or pass `--build` to let `kodall-one-deploy` automatically compile your project before deploying.
 
 ### `Authentication failed with status 401`
-* **Cause**: Invalid credentials or expired API key.
 * **Fix**: Check `ONE_USERNAME` / `ONE_PASSWORD` or verify your `ONE_API_KEY` token permissions on your instance.
 
-### `Temporary zip files remaining in workspace`
-* **Cause**: Previous legacy tools left `web_app.zip` in your working directory.
-* **Fix**: `kodall-one-deploy` writes archives to `os.tmpdir()` and automatically cleans them up in a `finally` block.
+### `503 Service Unavailable / Offline Backend`
+* **Fix**: Run `npx one-deploy -s` to verify whether the backend instance is online and reachable.
 
 ---
 [↑ back to top](#kodall-one-deploy)
