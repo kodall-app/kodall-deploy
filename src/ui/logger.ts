@@ -135,3 +135,20 @@ export class Spinner {
     process.stdout.write(`\r${frame} ${this.text}`);
   }
 }
+
+/**
+ * Strips ANSI color and control characters from a string
+ */
+export function stripAnsi(text: string): string {
+  return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+/**
+ * Pads a string to target visual width, ignoring invisible ANSI escape codes
+ */
+export function pad(text: string, width: number): string {
+  const visible = stripAnsi(text).length;
+  const needed = Math.max(0, width - visible);
+  return text + " ".repeat(needed);
+}
+

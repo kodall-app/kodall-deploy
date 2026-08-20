@@ -9,10 +9,17 @@ import {
 } from "./core/config.js";
 import { deploy } from "./core/deployer.js";
 import { detectFramework } from "./core/detector.js";
+import {
+  cloneEnvironment,
+  EnvironmentInfo,
+  listEnvironments,
+  removeEnvironment,
+  setDefaultEnvironment,
+} from "./core/env-manager.js";
 import { getDeploymentHistory } from "./core/history.js";
 import { rollback } from "./core/rollback.js";
 import { DeploymentRecord, DeployOptions, RollbackOptions, WebAppConfigFile } from "./core/types.js";
-import { bold, cyan, dim, green, log, magenta, red, Spinner, yellow } from "./ui/logger.js";
+import { bold, cyan, dim, green, log, magenta, pad, red, Spinner, yellow } from "./ui/logger.js";
 import { askConfirm, askPassword, askSelect, askText } from "./ui/prompts.js";
 
 const VERSION = "1.2.0";
@@ -37,7 +44,11 @@ ${bold("OPTIONS:")}
   -P, --password <password> ONE Framework login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
   -c, --config <file>       Path to config file [default: config_web_app.json]
+  -l, --list-envs           List all configured environments in a table
       --add-env [name]      Add or update an environment in config_web_app.json
+      --remove-env [name]   Remove an environment from configuration
+      --clone-env <src> [dst] Duplicate/clone an existing environment
+      --set-default <name>  Set default deployment environment
   -H, --history             Display deployment history for environment(s)
   -R, --rollback [storage]  Roll back web application to a previous storage build
       --build               Force running "npm run build" before deploying
@@ -79,6 +90,14 @@ async function main() {
   let explicitHistory = false;
   let explicitRollback = false;
   let rollbackStorageId: string | undefined;
+  let explicitListEnvs = false;
+  let explicitRemoveEnv = false;
+  let removeEnvName: string | undefined;
+  let explicitCloneEnv = false;
+  let cloneSource: string | undefined;
+  let cloneTarget: string | undefined;
+  let explicitSetDefault = false;
+  let setDefaultEnvName: string | undefined;
   const args: string[] = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
@@ -96,6 +115,58 @@ async function main() {
         explicitTypePrompt = true;
         continue;
       }
+    }
+    if (arg === "-l" || arg === "--list-envs" || arg === "--list") {
+      explicitListEnvs = true;
+      continue;
+    }
+    if (arg === "--remove-env" || arg === "--delete-env") {
+      const nextArg = rawArgs[i + 1];
+      if (nextArg && !nextArg.startsWith("-")) {
+        removeEnvName = nextArg;
+        i++;
+      }
+      explicitRemoveEnv = true;
+      continue;
+    }
+    if (arg.startsWith("--remove-env=")) {
+      removeEnvName = arg.split("=")[1];
+      explicitRemoveEnv = true;
+      continue;
+    }
+    if (arg === "--clone-env" || arg === "--copy-env") {
+      const src = rawArgs[i + 1];
+      const dst = rawArgs[i + 2];
+      if (src && !src.startsWith("-")) {
+        cloneSource = src;
+        i++;
+        if (dst && !dst.startsWith("-")) {
+          cloneTarget = dst;
+          i++;
+        }
+      }
+      explicitCloneEnv = true;
+      continue;
+    }
+    if (arg.startsWith("--clone-env=")) {
+      const val = arg.split("=")[1];
+      if (val) cloneSource = val;
+      explicitCloneEnv = true;
+      continue;
+    }
+    if (arg === "--set-default") {
+      const nextArg = rawArgs[i + 1];
+      if (nextArg && !nextArg.startsWith("-")) {
+        setDefaultEnvName = nextArg;
+        i++;
+      }
+      explicitSetDefault = true;
+      continue;
+    }
+    if (arg.startsWith("--set-default=")) {
+      setDefaultEnvName = arg.split("=")[1];
+      explicitSetDefault = true;
+      continue;
     }
     if (arg === "-H" || arg === "--history") {
       explicitHistory = true;
@@ -149,7 +220,11 @@ async function main() {
     password: { type: "string" as const, short: "P" },
     "api-key": { type: "string" as const, short: "k" },
     config: { type: "string" as const, short: "c" },
+    "list-envs": { type: "boolean" as const, short: "l", default: false },
     "add-env": { type: "string" as const },
+    "remove-env": { type: "string" as const },
+    "clone-env": { type: "string" as const },
+    "set-default": { type: "string" as const },
     history: { type: "boolean" as const, short: "H", default: false },
     rollback: { type: "string" as const, short: "R" },
     build: { type: "boolean" as const, default: false },
@@ -193,6 +268,30 @@ async function main() {
   const configPath = flags.config || DEFAULT_CONFIG_FILENAME;
 
   console.log(`\n${bold(cyan("▶"))} ${bold("ONE Framework / Kodall Deployer")} ${dim(`v${VERSION}`)}\n`);
+
+  // Handle --list-envs command
+  if (flags["list-envs"] || explicitListEnvs) {
+    await handleListEnvs(configPath);
+    return;
+  }
+
+  // Handle --remove-env command
+  if (flags["remove-env"] !== undefined || explicitRemoveEnv) {
+    await handleRemoveEnv(configPath, removeEnvName || flags["remove-env"] || undefined);
+    return;
+  }
+
+  // Handle --clone-env command
+  if (flags["clone-env"] !== undefined || explicitCloneEnv) {
+    await handleCloneEnv(configPath, cloneSource || flags["clone-env"] || undefined, cloneTarget);
+    return;
+  }
+
+  // Handle --set-default command
+  if (flags["set-default"] !== undefined || explicitSetDefault) {
+    await handleSetDefault(configPath, setDefaultEnvName || flags["set-default"] || undefined);
+    return;
+  }
 
   // Handle --history command
   if (flags.history || explicitHistory) {
@@ -263,6 +362,7 @@ async function main() {
         "Custom one-off deployment",
         "📜 View deployment history",
         "⏮️  Rollback to a previous build",
+        "⚙️  Manage environments",
       ];
       const BACK_OPTION = "↩ Back";
 
@@ -316,6 +416,9 @@ async function main() {
         } else if (mode === "⏮️  Rollback to a previous build") {
           await handleRollback(configPath, undefined, undefined, flags);
           return;
+        } else if (mode === "⚙️  Manage environments") {
+          await handleManageEnvs(configPath);
+          continue;
         } else if (mode === "Custom one-off deployment") {
           console.log(dim("\nEnter custom deployment parameters:\n"));
           const detected = detectFramework(process.cwd());
@@ -938,15 +1041,15 @@ function displayHistory(records: DeploymentRecord[], envFilter?: string): void {
     console.log(
       dim(
         "    " +
-          "TIMESTAMP".padEnd(20) +
-          "ACTION".padEnd(12) +
-          "STORAGE ID".padEnd(14) +
-          "ENTITY KEY".padEnd(12) +
-          "ROUTE PATH".padEnd(24) +
+          pad("TIMESTAMP", 20) +
+          pad("ACTION", 14) +
+          pad("STORAGE ID", 14) +
+          pad("ENTITY KEY", 14) +
+          pad("ROUTE PATH", 24) +
           "USER"
       )
     );
-    console.log(dim("    " + "─".repeat(90)));
+    console.log(dim("    " + "─".repeat(95)));
 
     for (const r of envRecords) {
       const d = new Date(r.timestamp);
@@ -963,11 +1066,11 @@ function displayHistory(records: DeploymentRecord[], envFilter?: string): void {
 
       console.log(
         "    " +
-          dim(dateStr.padEnd(20)) +
-          actionBadge.padEnd(r.action === "rollback" || r.action === "created" ? 21 : 21) +
-          cyan(String(r.storageId).padEnd(14)) +
-          dim(String(r.entityKey).padEnd(12)) +
-          (r.webAppPath || "").padEnd(24) +
+          pad(dim(dateStr), 20) +
+          pad(actionBadge, 14) +
+          pad(cyan(String(r.storageId)), 14) +
+          pad(dim(String(r.entityKey)), 14) +
+          pad(r.webAppPath || "", 24) +
           dim(r.username || "-")
       );
     }
@@ -1077,6 +1180,188 @@ async function handleRollback(
     spinner.stop();
     log.error(`Rollback failed: ${(err as Error).message}`);
     process.exitCode = 1;
+  }
+}
+
+function displayEnvsTable(envs: EnvironmentInfo[]): void {
+  if (envs.length === 0) {
+    console.log(yellow("\nNo environments configured. Run 'one-deploy --init' or '--add-env' to add one.\n"));
+    return;
+  }
+
+  console.log(`\n${bold(cyan("⚙️  Configured Environments:"))}\n`);
+  console.log(
+    "  " +
+      dim(
+        pad("DEFAULT", 10) +
+        pad("ENV NAME", 18) +
+        pad("TYPE", 14) +
+        pad("AUTH", 14) +
+        pad("ROUTE PATH", 24) +
+        "INSTANCE URL"
+      )
+  );
+  console.log(dim("  " + "─".repeat(100)));
+
+  for (const env of envs) {
+    const defaultTag = env.isDefault ? green(bold("  ★")) : "";
+    const nameStr = env.isDefault ? bold(cyan(env.name)) : bold(env.name);
+    const typeStr =
+      env.type === "prod"
+        ? red(env.type)
+        : env.type === "staging"
+        ? yellow(env.type)
+        : cyan(env.type);
+
+    const authStr = env.hasApiKey ? green("API Key") : dim("Username");
+    const routeStr = env.webAppPath || "/";
+    const instanceStr = env.instance || "-";
+
+    console.log(
+      "  " +
+        pad(defaultTag, 10) +
+        pad(nameStr, 18) +
+        pad(typeStr, 14) +
+        pad(authStr, 14) +
+        pad(routeStr, 24) +
+        dim(instanceStr)
+    );
+  }
+  console.log("");
+}
+
+async function handleListEnvs(configPath: string) {
+  const envs = listEnvironments(configPath);
+  displayEnvsTable(envs);
+}
+
+async function handleRemoveEnv(configPath: string, envName?: string) {
+  const { fileExists, config } = loadConfigFile(configPath);
+  if (!fileExists || !config.environments || Object.keys(config.environments).length === 0) {
+    log.error(`No environments found in ${configPath}`);
+    return;
+  }
+
+  let target = envName;
+  const envKeys = Object.keys(config.environments);
+
+  if (!target) {
+    target = await askSelect("Select environment to remove", envKeys, 0);
+  }
+
+  if (!config.environments[target]) {
+    log.error(`Environment "${target}" does not exist in ${configPath}`);
+    return;
+  }
+
+  const confirm = await askConfirm(`Are you sure you want to delete environment "${target}"?`, false);
+  if (!confirm) {
+    log.info("Cancelled.");
+    return;
+  }
+
+  const res = removeEnvironment(target, configPath);
+  log.success(`Environment "${target}" removed from ${configPath}!`);
+  if (res.newDefault) {
+    log.info(`New default environment: "${res.newDefault}"`);
+  }
+}
+
+async function handleCloneEnv(configPath: string, sourceName?: string, targetName?: string) {
+  const { fileExists, config } = loadConfigFile(configPath);
+  if (!fileExists || !config.environments || Object.keys(config.environments).length === 0) {
+    log.error(`No environments found in ${configPath}`);
+    return;
+  }
+
+  const envKeys = Object.keys(config.environments);
+  let src = sourceName;
+  if (!src) {
+    src = await askSelect("Select source environment to clone", envKeys, 0);
+  }
+
+  if (!config.environments[src]) {
+    log.error(`Source environment "${src}" does not exist in ${configPath}`);
+    return;
+  }
+
+  let dst = targetName;
+  if (!dst) {
+    dst = await askText(`New environment name (cloned from "${src}")`);
+  }
+
+  if (config.environments[dst]) {
+    log.error(`Target environment "${dst}" already exists in ${configPath}`);
+    return;
+  }
+
+  const srcData = config.environments[src];
+  const newInstance = await askText(`Instance URL for "${dst}"`, srcData.instance || "https://dev.instance.kodall.ro");
+  const newPath = await askText(`URL route for "${dst}" (press Enter to inherit "${srcData.web_app_path || config.web_app_path || "/app"}")`, srcData.web_app_path, false);
+  const newApiKey = await askText(`API Key for "${dst}" (optional, press Enter to inherit)`, srcData.api_key, false);
+
+  cloneEnvironment(
+    src,
+    dst,
+    {
+      instance: newInstance,
+      ...(newPath ? { web_app_path: newPath.startsWith("/") ? newPath : `/${newPath}` } : {}),
+      ...(newApiKey ? { api_key: newApiKey } : {}),
+    },
+    configPath
+  );
+
+  log.success(`Environment "${dst}" created (cloned from "${src}") in ${configPath}!`);
+}
+
+async function handleSetDefault(configPath: string, envName?: string) {
+  const { fileExists, config } = loadConfigFile(configPath);
+  if (!fileExists || !config.environments || Object.keys(config.environments).length === 0) {
+    log.error(`No environments found in ${configPath}`);
+    return;
+  }
+
+  const envKeys = Object.keys(config.environments);
+  let target = envName;
+  if (!target) {
+    target = await askSelect("Select environment to set as default", envKeys, 0);
+  }
+
+  if (!config.environments[target]) {
+    log.error(`Environment "${target}" does not exist in ${configPath}`);
+    return;
+  }
+
+  setDefaultEnvironment(target, configPath);
+  log.success(`Default environment set to "${target}" in ${configPath}!`);
+}
+
+async function handleManageEnvs(configPath: string) {
+  const BACK_OPTION = "↩ Back";
+  const choices = [
+    "📋 List configured environments",
+    "➕ Add or edit an environment",
+    "🗑️  Remove an environment",
+    "📑 Clone / duplicate an environment",
+    "⭐ Set default environment",
+    BACK_OPTION,
+  ];
+
+  while (true) {
+    const action = await askSelect("Environment Management:", choices, 0);
+    if (action === BACK_OPTION) {
+      break;
+    } else if (action === "📋 List configured environments") {
+      await handleListEnvs(configPath);
+    } else if (action === "➕ Add or edit an environment") {
+      await handleAddEnv(configPath);
+    } else if (action === "🗑️  Remove an environment") {
+      await handleRemoveEnv(configPath);
+    } else if (action === "📑 Clone / duplicate an environment") {
+      await handleCloneEnv(configPath);
+    } else if (action === "⭐ Set default environment") {
+      await handleSetDefault(configPath);
+    }
   }
 }
 
