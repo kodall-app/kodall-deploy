@@ -73,3 +73,59 @@ export interface DeployResult {
   archiveSizeBytes?: number;
   error?: Error | string;
 }
+
+/**
+ * Historical record of a deployment event
+ */
+export interface DeploymentRecord {
+  id: string;
+  timestamp: string;
+  env?: string;
+  instance: string;
+  entityKey: string | number;
+  storageId: string | number;
+  webAppName: string;
+  webAppPath: string;
+  archiveSha256?: string;
+  action: "created" | "updated" | "rollback";
+  username?: string;
+  durationMs?: number;
+}
+
+/**
+ * Options passed to the rollback() function
+ */
+export interface RollbackOptions {
+  configPath?: string;
+  env?: string;
+  instance?: string;
+  webAppName?: string;
+  webAppPath?: string;
+  username?: string;
+  password?: string;
+  apiKey?: string;
+  targetStorageId?: string | number;
+  stepsBack?: number;
+  ci?: boolean;
+  silent?: boolean;
+  onProgress?: (
+    step: string,
+    status: "start" | "success" | "warn" | "error" | "info",
+    message?: string
+  ) => void;
+}
+
+/**
+ * Result returned by the rollback process
+ */
+export interface RollbackResult {
+  success: boolean;
+  entityKey: string | number;
+  fromStorageId?: string | number;
+  toStorageId: string | number;
+  webAppName: string;
+  webAppPath: string;
+  durationMs: number;
+  error?: Error | string;
+}
+

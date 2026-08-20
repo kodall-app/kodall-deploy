@@ -2,6 +2,7 @@ import { KodallNodeClient } from "../client/kodall-node-client.js";
 import { isOperation, isProblem, isStorage, isValidation } from "../client/types.js";
 import { createArchive } from "./archiver.js";
 import { resolveConfig, validateDistDirectory } from "./config.js";
+import { recordDeployment } from "./history.js";
 import { DeployOptions, DeployResult, ResolvedConfig } from "./types.js";
 
 /**
@@ -184,13 +185,37 @@ export async function deploy(
       `Web application successfully ${action} (Entity Key: ${finalKey})!`
     );
 
+    const durationMs = Date.now() - startTime;
+
+    // Record deployment event in history
+    try {
+      recordDeployment(
+        {
+          id: `dep_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          timestamp: new Date().toISOString(),
+          env: targetEnv || config.env || "default",
+          instance: config.instance,
+          entityKey: finalKey,
+          storageId,
+          webAppName: config.web_app_name,
+          webAppPath: config.web_app_path,
+          action,
+          username: config.username || (config.api_key ? "api_key" : undefined),
+          durationMs,
+        },
+        cwd
+      );
+    } catch {
+      // Non-fatal if history writing fails
+    }
+
     return {
       success: true,
       storageId,
       entityKey: finalKey,
       action,
       archiveSizeBytes: archive.sizeBytes,
-      durationMs: Date.now() - startTime,
+      durationMs,
     };
   } finally {
     // Always clean up temp archive

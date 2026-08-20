@@ -194,6 +194,8 @@ OPTIONS:
   -k, --api-key <key>       API key authentication (bypasses username/password)
   -c, --config <file>       Path to config file [default: config_web_app.json]
       --add-env [name]      Add or update an environment in config_web_app.json
+  -H, --history             Display deployment history for environment(s)
+  -R, --rollback [storage]  Roll back web application to a previous storage build
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
       --init                Interactively generate or update config_web_app.json
@@ -223,27 +225,36 @@ npx one-deploy --type prod
 # 2. Deploy to ALL configured environments sequentially
 npx one-deploy --all
 
-# 3. Deploy to specific comma-separated environments
+# 3. View deployment history for production
+npx one-deploy -H -e prod
+
+# 4. Roll back production to a previous build interactively
+npx one-deploy --rollback -e prod
+
+# 5. Roll back directly to a specific Storage ID (sub-second zero-build restore)
+npx one-deploy --rollback 137 -e prod
+
+# 6. Deploy to specific comma-separated environments
 npx one-deploy -e dev,staging
 
-# 4. Add a new custom environment to config_web_app.json
+# 7. Add a new custom environment to config_web_app.json
 npx one-deploy --add-env client-b
 # or interactive wizard
 npx one-deploy --add-env
 
-# 5. Interactive deployment (prompts if anything is missing)
+# 8. Interactive deployment (prompts if anything is missing)
 npx one-deploy
 
-# 6. Deploy to staging using config_web_app.json
+# 9. Deploy to staging using config_web_app.json
 npx one-deploy -e staging
 
-# 7. Deploy to production using API Key
+# 10. Deploy to production using API Key
 npx one-deploy -e prod -k "2aefed1a-9bc8-49b6-8f5a-e825614bb2b0"
 
-# 8. Headless CI deployment with credentials
+# 11. Headless CI deployment with credentials
 npx one-deploy -e prod -u "$ONE_USER" -P "$ONE_PASSWORD" --ci
 
-# 9. Full command-line deployment without any config file
+# 12. Full command-line deployment without any config file
 npx one-deploy \
   --instance "https://app.kodall.ro" \
   --name "my-app" \
@@ -252,12 +263,33 @@ npx one-deploy \
   --api-key "$ONE_API_KEY" \
   --ci
 
-# 10. Dry run verification
+# 13. Dry run verification
 npx one-deploy -e prod --dry-run
 ```
 
 ---
 [↑ back to top](#kodall-one-deploy)
+
+## Instant Rollback API
+
+In addition to `deploy()`, you can programmatic rollback any web application:
+
+```typescript
+import { rollback, getDeploymentHistory } from "kodall-one-deploy";
+
+// View previous deployments
+const history = getDeploymentHistory(process.cwd(), "prod");
+console.log("Previous builds:", history);
+
+// Roll back to previous build
+const result = await rollback({
+  env: "prod",
+  stepsBack: 1, // or targetStorageId: 137
+  apiKey: process.env.ONE_API_KEY,
+});
+
+console.log(`Rolled back to storage ID: ${result.toStorageId}`);
+```
 
 ## Programmatic API
 

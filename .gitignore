@@ -4,5 +4,8 @@ dist/
 .DS_Store
 Thumbs.db
 config_web_app.json
+.one-deploy/
+.one-deploy-history.json
 *.zip
 coverage/
+*.tgz

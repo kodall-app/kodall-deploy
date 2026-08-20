@@ -7,7 +7,9 @@ import {
   saveConfigFile,
 } from "./core/config.js";
 import { deploy } from "./core/deployer.js";
-import { DeployOptions, WebAppConfigFile } from "./core/types.js";
+import { getDeploymentHistory } from "./core/history.js";
+import { rollback } from "./core/rollback.js";
+import { DeploymentRecord, DeployOptions, RollbackOptions, WebAppConfigFile } from "./core/types.js";
 import { bold, cyan, dim, green, log, magenta, red, Spinner, yellow } from "./ui/logger.js";
 import { askConfirm, askPassword, askSelect, askText } from "./ui/prompts.js";
 
@@ -34,6 +36,8 @@ ${bold("OPTIONS:")}
   -k, --api-key <key>       API key authentication (bypasses username/password)
   -c, --config <file>       Path to config file [default: config_web_app.json]
       --add-env [name]      Add or update an environment in config_web_app.json
+  -H, --history             Display deployment history for environment(s)
+  -R, --rollback [storage]  Roll back web application to a previous storage build
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
       --init                Interactively generate or update config_web_app.json
@@ -51,10 +55,13 @@ ${bold("ENVIRONMENT VARIABLES:")}
   ONE_API_KEY, KODALL_API_KEY       API key
 
 ${bold("EXAMPLES:")}
-  $ one-deploy                      # Interactive or uses default_env
+  $ one-deploy                      # Interactive deployment menu
   $ one-deploy -e prod              # Deploy to production environment
   $ one-deploy --type prod          # Deploy to ALL production environments (e.g. prod-us, prod-eu)
   $ one-deploy --all                # Deploy to all configured environments
+  $ one-deploy -H -e prod           # View deployment history for production
+  $ one-deploy --rollback -e prod   # Interactively roll back prod to a previous build
+  $ one-deploy --rollback 137       # Roll back directly to storage ID 137
   $ one-deploy -e staging --dry-run # Validate and test staging deployment
   $ one-deploy --ci -u admin -P secret # Non-interactive CI deployment
 `;
@@ -64,6 +71,9 @@ async function main() {
 
   let explicitEnvPrompt = false;
   let explicitTypePrompt = false;
+  let explicitHistory = false;
+  let explicitRollback = false;
+  let rollbackStorageId: string | undefined;
   const args: string[] = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
@@ -81,6 +91,29 @@ async function main() {
         explicitTypePrompt = true;
         continue;
       }
+    }
+    if (arg === "-H" || arg === "--history") {
+      explicitHistory = true;
+      continue;
+    }
+    if (arg === "-R" || arg === "--rollback") {
+      const nextArg = rawArgs[i + 1];
+      if (nextArg && !nextArg.startsWith("-")) {
+        rollbackStorageId = nextArg;
+        i++;
+      } else {
+        explicitRollback = true;
+      }
+      continue;
+    }
+    if (arg.startsWith("--rollback=")) {
+      const val = arg.split("=")[1];
+      if (val) {
+        rollbackStorageId = val;
+      } else {
+        explicitRollback = true;
+      }
+      continue;
     }
     if (arg.startsWith("-e=") || arg.startsWith("--env=")) {
       const val = arg.split("=")[1];
@@ -112,6 +145,8 @@ async function main() {
     "api-key": { type: "string" as const, short: "k" },
     config: { type: "string" as const, short: "c" },
     "add-env": { type: "string" as const },
+    history: { type: "boolean" as const, short: "H", default: false },
+    rollback: { type: "string" as const, short: "R" },
     ci: { type: "boolean" as const, default: false },
     "non-interactive": { type: "boolean" as const, default: false },
     "dry-run": { type: "boolean" as const, default: false },
@@ -149,6 +184,21 @@ async function main() {
   const configPath = flags.config || DEFAULT_CONFIG_FILENAME;
 
   console.log(`\n${bold(cyan("▶"))} ${bold("ONE Framework / Kodall Deployer")} ${dim(`v${VERSION}`)}\n`);
+
+  // Handle --history command
+  if (flags.history || explicitHistory) {
+    const targetEnv = flags.env;
+    const records = getDeploymentHistory(process.cwd(), targetEnv);
+    displayHistory(records, targetEnv);
+    return;
+  }
+
+  // Handle --rollback command
+  if (flags.rollback !== undefined || explicitRollback || rollbackStorageId) {
+    const targetStorage = rollbackStorageId || flags.rollback;
+    await handleRollback(configPath, targetStorage, flags.env, flags);
+    return;
+  }
 
   // Handle --add-env command
   if (flags["add-env"] !== undefined) {
@@ -202,6 +252,8 @@ async function main() {
         "Deploy by environment type (dev / staging / prod)",
         "Deploy to ALL environments",
         "Custom one-off deployment",
+        "📜 View deployment history",
+        "⏮️  Rollback to a previous build",
       ];
       const BACK_OPTION = "↩ Back";
 
@@ -243,6 +295,18 @@ async function main() {
         } else if (mode === "Deploy to ALL environments") {
           selectedAll = true;
           break;
+        } else if (mode === "📜 View deployment history") {
+          const envChoices = ["All environments", ...envKeys, BACK_OPTION];
+          const chosenEnv = await askSelect("View history for which environment?", envChoices, 0);
+          if (chosenEnv === BACK_OPTION) {
+            continue;
+          }
+          const filter = chosenEnv === "All environments" ? undefined : chosenEnv;
+          displayHistory(getDeploymentHistory(process.cwd(), filter), filter);
+          continue;
+        } else if (mode === "⏮️  Rollback to a previous build") {
+          await handleRollback(configPath, undefined, undefined, flags);
+          return;
         } else if (mode === "Custom one-off deployment") {
           console.log(dim("\nEnter custom deployment parameters:\n"));
           const customInstance = await askText("ONE Framework Instance URL (e.g. https://instance.domain.com)");
@@ -736,6 +800,173 @@ async function handleAddEnv(configPath: string, initialEnvName?: string) {
   saveConfigFile(configPath, config);
   console.log("");
   log.success(`Environment "${envName}" saved to ${configPath}!`);
+}
+
+function displayHistory(records: DeploymentRecord[], envFilter?: string): void {
+  if (records.length === 0) {
+    console.log(yellow(`\nNo deployment history found${envFilter ? ` for environment "${envFilter}"` : ""}.`));
+    console.log(dim("Deployments are automatically recorded to .one-deploy-history.json on success.\n"));
+    return;
+  }
+
+  // Group records by environment
+  const grouped: Record<string, DeploymentRecord[]> = {};
+  for (const r of records) {
+    const envName = r.env || "default";
+    if (!grouped[envName]) {
+      grouped[envName] = [];
+    }
+    grouped[envName].push(r);
+  }
+
+  console.log(`\n${bold(cyan("📜 Deployment History"))}${envFilter ? dim(` (filter: ${envFilter})`) : ""}:\n`);
+
+  for (const [envName, envRecords] of Object.entries(grouped)) {
+    const instanceInfo = envRecords[0]?.instance ? dim(` (${envRecords[0].instance})`) : "";
+    console.log(`  ${bold(green(`[${envName}]`))}${instanceInfo}`);
+    console.log(
+      dim(
+        "    " +
+          "TIMESTAMP".padEnd(20) +
+          "ACTION".padEnd(12) +
+          "STORAGE ID".padEnd(14) +
+          "ENTITY KEY".padEnd(12) +
+          "ROUTE PATH".padEnd(24) +
+          "USER"
+      )
+    );
+    console.log(dim("    " + "─".repeat(90)));
+
+    for (const r of envRecords) {
+      const d = new Date(r.timestamp);
+      const dateStr = !isNaN(d.getTime())
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+        : r.timestamp.slice(0, 16);
+
+      const actionBadge =
+        r.action === "rollback"
+          ? magenta("rollback")
+          : r.action === "created"
+          ? green("created")
+          : cyan("updated");
+
+      console.log(
+        "    " +
+          dim(dateStr.padEnd(20)) +
+          actionBadge.padEnd(r.action === "rollback" || r.action === "created" ? 21 : 21) +
+          cyan(String(r.storageId).padEnd(14)) +
+          dim(String(r.entityKey).padEnd(12)) +
+          (r.webAppPath || "").padEnd(24) +
+          dim(r.username || "-")
+      );
+    }
+    console.log("");
+  }
+}
+
+async function handleRollback(
+  configPath: string,
+  targetStorageId?: string | number,
+  initialEnv?: string,
+  flags: any = {}
+) {
+  const { config: loadedConfig } = loadConfigFile(configPath);
+  let targetEnv = initialEnv || flags.env;
+
+  // If a specific storage ID was passed, auto-detect its environment from history
+  if (targetStorageId && !targetEnv) {
+    const allRecords = getDeploymentHistory(process.cwd());
+    const matchedRecord = allRecords.find((r) => String(r.storageId) === String(targetStorageId));
+    if (matchedRecord && matchedRecord.env) {
+      targetEnv = matchedRecord.env;
+    }
+  }
+
+  // Only prompt for environment if still unresolved and multiple environments exist
+  if (!targetEnv && loadedConfig.environments && Object.keys(loadedConfig.environments).length > 0) {
+    const envKeys = Object.keys(loadedConfig.environments);
+    const defaultEnv = loadedConfig.default_env || envKeys[0];
+    const defaultIdx = Math.max(0, envKeys.indexOf(defaultEnv));
+    targetEnv = await askSelect("Select environment to roll back", envKeys, defaultIdx);
+  }
+
+  const envHistory = getDeploymentHistory(process.cwd(), targetEnv);
+  let selectedStorageId = targetStorageId;
+
+  if (!selectedStorageId) {
+    if (envHistory.length === 0) {
+      console.log(yellow(`\nNo deployment history found${targetEnv ? ` for environment "${targetEnv}"` : ""}.`));
+      selectedStorageId = await askText("Storage ID to roll back to (e.g. 137)");
+    } else {
+      const choices = envHistory.map((r, idx) => {
+        const d = new Date(r.timestamp);
+        const dateStr = !isNaN(d.getTime()) ? d.toLocaleString() : r.timestamp;
+        const currentTag = idx === 0 ? " (CURRENT ACTIVE BUILD)" : "";
+        return `Storage ID: ${r.storageId} - ${r.webAppName} (${dateStr})${currentTag}`;
+      });
+
+      const defaultIdx = choices.length > 1 ? 1 : 0;
+      const chosenStr = await askSelect(
+        "Select target deployment build to restore",
+        choices,
+        defaultIdx
+      );
+
+      const chosenIdx = choices.indexOf(chosenStr);
+      selectedStorageId = envHistory[chosenIdx]?.storageId;
+    }
+  }
+
+  if (!selectedStorageId) {
+    log.error("No storage ID specified for rollback.");
+    return;
+  }
+
+  let user = flags.user;
+  let pass = flags.password;
+
+  const envConf = targetEnv && loadedConfig.environments ? loadedConfig.environments[targetEnv] : loadedConfig;
+  if (!flags["api-key"] && !envConf?.api_key) {
+    if (!user) user = await askText("ONE Username", process.env.USER || process.env.USERNAME);
+    if (!pass) pass = await askPassword("ONE Password");
+  }
+
+  const spinner = new Spinner("", false);
+  const rollbackOpts: RollbackOptions = {
+    configPath,
+    env: targetEnv,
+    instance: flags.instance,
+    webAppName: flags.name,
+    webAppPath: flags.path,
+    targetStorageId: selectedStorageId,
+    username: user,
+    password: pass,
+    apiKey: flags["api-key"],
+    ci: flags.ci,
+    onProgress: (step, status, message) => {
+      if (status === "start") spinner.start(message || `Rolling back ${step}...`);
+      else if (status === "success") spinner.succeed(message);
+      else if (status === "warn") spinner.warn(message);
+      else if (status === "error") spinner.fail(message);
+      else if (status === "info") {
+        spinner.stop();
+        if (message) log.info(message);
+      }
+    },
+  };
+
+  try {
+    const result = await rollback(rollbackOpts);
+    spinner.stop();
+    console.log("");
+    log.success(
+      `Rollback successful! Restored Storage ID: ${bold(String(result.toStorageId))} (Entity: ${result.entityKey}) [${(result.durationMs / 1000).toFixed(2)}s]`
+    );
+  } catch (err) {
+    spinner.stop();
+    log.error(`Rollback failed: ${(err as Error).message}`);
+    process.exitCode = 1;
+  }
 }
 
 main()
