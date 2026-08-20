@@ -21,6 +21,7 @@ export {
 } from "./core/config.js";
 export { KodallNodeClient, type KodallNodeClientOptions } from "./client/kodall-node-client.js";
 export { CookieStore } from "./client/cookie-store.js";
+export { detectFramework, sanitizeProjectName } from "./core/detector.js";
 export * from "./core/types.js";
 export * from "./client/types.js";
 

@@ -129,3 +129,14 @@ export interface RollbackResult {
   error?: Error | string;
 }
 
+/**
+ * Result of project framework & directory detection
+ */
+export interface DetectedProject {
+  framework: string;
+  distPath: string;
+  appName: string;
+  hasBuildScript: boolean;
+}
+
+

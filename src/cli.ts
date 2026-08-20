@@ -7,6 +7,7 @@ import {
   saveConfigFile,
 } from "./core/config.js";
 import { deploy } from "./core/deployer.js";
+import { detectFramework } from "./core/detector.js";
 import { getDeploymentHistory } from "./core/history.js";
 import { rollback } from "./core/rollback.js";
 import { DeploymentRecord, DeployOptions, RollbackOptions, WebAppConfigFile } from "./core/types.js";
@@ -309,11 +310,12 @@ async function main() {
           return;
         } else if (mode === "Custom one-off deployment") {
           console.log(dim("\nEnter custom deployment parameters:\n"));
+          const detected = detectFramework(process.cwd());
           const customInstance = await askText("ONE Framework Instance URL (e.g. https://instance.domain.com)");
-          const customName = await askText("WebApp Name", loadedConfig.web_app_name || "my-app");
+          const customName = await askText("WebApp Name", loadedConfig.web_app_name || detected.appName || "my-app");
           const defaultPath = loadedConfig.web_app_path || (customName.startsWith("/") ? customName : `/${customName}`);
           const customPath = await askText("WebApp Path (URL route)", defaultPath);
-          const customDist = await askText("Build Directory (containing index.html)", loadedConfig.dist_path || "./dist");
+          const customDist = await askText("Build Directory (containing index.html)", loadedConfig.dist_path || detected.distPath || "./dist");
           const customApiKey = await askText("API Key (optional, press Enter to skip)", undefined, false);
 
           customDeployOpts = {
@@ -482,14 +484,15 @@ async function main() {
   // If running interactively, prompt for any missing required parameters
   if (!isCi) {
     let promptedAny = false;
+    const detected = detectFramework(process.cwd());
 
     if (!deployOpts.webAppName && !configState.resolved.web_app_name) {
-      deployOpts.webAppName = await askText("WebApp Name");
+      deployOpts.webAppName = await askText("WebApp Name", detected.appName);
       promptedAny = true;
     }
 
     if (!deployOpts.webAppPath && !configState.resolved.web_app_path) {
-      const defaultPath = deployOpts.webAppName || configState.resolved.web_app_name || "app";
+      const defaultPath = deployOpts.webAppName || configState.resolved.web_app_name || detected.appName || "app";
       const normalizedDefault = defaultPath.startsWith("/") ? defaultPath : `/${defaultPath}`;
       deployOpts.webAppPath = await askText("WebApp Path", normalizedDefault);
       promptedAny = true;
@@ -501,7 +504,7 @@ async function main() {
     }
 
     if (!deployOpts.distPath && (!fileExists || !loadedConfig.dist_path)) {
-      deployOpts.distPath = await askText("Build Directory (containing index.html)", "./dist");
+      deployOpts.distPath = await askText("Build Directory (containing index.html)", detected.distPath || "./dist");
       promptedAny = true;
     }
 
@@ -598,9 +601,19 @@ async function handleInit(configPath: string) {
 
   console.log(bold("Initialize ONE Deploy Configuration:\n"));
 
-  const webAppName = await askText("WebApp Name");
-  const webAppPath = await askText("WebApp Path (URL route)", webAppName.startsWith("/") ? webAppName : `/${webAppName}`);
-  const distPath = await askText("Build Directory (containing index.html)", "./dist");
+  const detected = detectFramework(process.cwd());
+  console.log(
+    dim("  " + "─".repeat(50)) + "\n" +
+    `  ${cyan("ℹ")} ${bold("Detected Project:")}   ${bold(green(detected.framework))}\n` +
+    `  ${cyan("▸")} ${dim("Suggested App Name:")} ${cyan(detected.appName)}\n` +
+    `  ${cyan("▸")} ${dim("Build Output Path:")}  ${cyan(detected.distPath)}\n` +
+    dim("  " + "─".repeat(50)) + "\n"
+  );
+
+  const webAppName = await askText("WebApp Name", detected.appName);
+  const defaultPath = webAppName.startsWith("/") ? webAppName : `/${webAppName}`;
+  const webAppPath = await askText("WebApp Path (URL route)", defaultPath);
+  const distPath = await askText("Build Directory (containing index.html)", detected.distPath || "./dist");
 
   const multiEnv = await askConfirm("Do you want to configure multiple environments (dev, staging, prod, custom)?", true);
 
@@ -777,13 +790,16 @@ async function handleAddEnv(configPath: string, initialEnvName?: string) {
   }
 
   if (!config.web_app_name) {
-    config.web_app_name = await askText("Global WebApp name", envName);
+    const detected = detectFramework(process.cwd());
+    config.web_app_name = await askText("Global WebApp name", detected.appName || envName);
   }
   if (!config.web_app_path) {
-    config.web_app_path = await askText("Global WebApp path", config.web_app_name);
+    const defaultPath = config.web_app_name.startsWith("/") ? config.web_app_name : `/${config.web_app_name}`;
+    config.web_app_path = await askText("Global WebApp path", defaultPath);
   }
   if (!config.dist_path) {
-    config.dist_path = "./dist";
+    const detected = detectFramework(process.cwd());
+    config.dist_path = detected.distPath || "./dist";
   }
   if (!config.default_env) {
     config.default_env = envName;
