@@ -1,0 +1,4 @@
+{
+  "vitest.enable": true,
+  "vitest.include": ["test/**/*.test.ts"]
+}
