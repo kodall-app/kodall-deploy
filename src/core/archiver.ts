@@ -17,6 +17,10 @@ export async function createArchive(
   srcDir: string,
   options: { level?: number } = {}
 ): Promise<ArchiveResult> {
+  if (!fs.existsSync(srcDir)) {
+    throw new Error(`Source directory does not exist: ${srcDir}`);
+  }
+
   const compressionLevel = options.level ?? 9;
 
   const tempFileName = `kodall-deploy-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.zip`;

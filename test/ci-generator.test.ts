@@ -58,6 +58,10 @@ describe("CI/CD Workflow Generator", () => {
       fs.writeFileSync(path.join(tempDir, "bitbucket-pipelines.yml"), "pipelines: {}");
       expect(detectExistingCIProvider(tempDir)).toBe("bitbucket");
     });
+
+    it("should return undefined when no CI config exists", () => {
+      expect(detectExistingCIProvider(tempDir)).toBeUndefined();
+    });
   });
 
   describe("generateGitHubActionsWorkflow", () => {
@@ -80,6 +84,24 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("ONE_API_KEY: ${{ secrets.ONE_API_KEY }}");
       expect(yaml).toContain('"develop") npx kodall-one-deploy --ci -e dev ;;');
       expect(yaml).toContain('"main") npx kodall-one-deploy --ci -e prod ;;');
+    });
+
+    it("should format bun and yarn commands properly", () => {
+      const yarnYaml = generateGitHubActionsWorkflow({
+        provider: "github",
+        mappings: [{ envName: "dev", branch: "main" }],
+        packageManager: "yarn",
+      });
+      expect(yarnYaml).toContain("yarn install --frozen-lockfile");
+      expect(yarnYaml).toContain("yarn build");
+
+      const bunYaml = generateGitHubActionsWorkflow({
+        provider: "github",
+        mappings: [{ envName: "dev", branch: "main" }],
+        packageManager: "bun",
+      });
+      expect(bunYaml).toContain("bun install --frozen-lockfile");
+      expect(bunYaml).toContain("bun run build");
     });
   });
 
@@ -110,9 +132,7 @@ describe("CI/CD Workflow Generator", () => {
     it("should generate valid Bitbucket Pipelines YAML", () => {
       const yaml = generateBitbucketPipelinesWorkflow({
         provider: "bitbucket",
-        mappings: [
-          { envName: "dev", branch: "develop" },
-        ],
+        mappings: [{ envName: "dev", branch: "develop" }],
         packageManager: "npm",
         nodeVersion: "20",
       });
@@ -138,6 +158,44 @@ describe("CI/CD Workflow Generator", () => {
       expect(fs.existsSync(path.join(tempDir, ".github", "workflows", "one-deploy.yml"))).toBe(true);
       expect(res.secrets).toContain("ONE_API_KEY");
       expect(res.secrets).toContain("ONE_INSTANCE");
+    });
+
+    it("should write .gitlab-ci.yml to filesystem", () => {
+      const res = generateCIWorkflow(
+        {
+          provider: "gitlab",
+          mappings: [{ envName: "prod", branch: "main" }],
+        },
+        tempDir
+      );
+
+      expect(res.filePath).toBe(".gitlab-ci.yml");
+      expect(fs.existsSync(path.join(tempDir, ".gitlab-ci.yml"))).toBe(true);
+    });
+
+    it("should write bitbucket-pipelines.yml to filesystem", () => {
+      const res = generateCIWorkflow(
+        {
+          provider: "bitbucket",
+          mappings: [{ envName: "dev", branch: "develop" }],
+        },
+        tempDir
+      );
+
+      expect(res.filePath).toBe("bitbucket-pipelines.yml");
+      expect(fs.existsSync(path.join(tempDir, "bitbucket-pipelines.yml"))).toBe(true);
+    });
+
+    it("should throw error on unsupported provider", () => {
+      expect(() =>
+        generateCIWorkflow(
+          {
+            provider: "unsupported" as any,
+            mappings: [],
+          },
+          tempDir
+        )
+      ).toThrow("Unsupported CI provider");
     });
   });
 });

@@ -6,6 +6,8 @@ describe("CookieStore", () => {
     const store = new CookieStore();
     store.parseAndSetCookie("session_id=abc123xyz; Path=/; HttpOnly");
     store.parseAndSetCookie("theme=dark; Path=/");
+    store.parseAndSetCookie(""); // empty
+    store.parseAndSetCookie("invalid-cookie"); // no equals
 
     expect(store.getCookie("session_id")).toBe("abc123xyz");
     expect(store.getCookie("theme")).toBe("dark");
@@ -13,7 +15,7 @@ describe("CookieStore", () => {
     expect(store.hasCookies()).toBe(true);
   });
 
-  it("should parse Set-Cookie from Response headers", () => {
+  it("should parse Set-Cookie from Response headers using getSetCookie", () => {
     const store = new CookieStore();
     const headers = new Headers();
     headers.append(
@@ -27,6 +29,19 @@ describe("CookieStore", () => {
 
     expect(store.getCsrfToken()).toBe("token12345");
     expect(store.getCookie("JSESSIONID")).toBe("sess789");
+  });
+
+  it("should fallback to headers.get('set-cookie') when getSetCookie is unavailable", () => {
+    const store = new CookieStore();
+    const mockResponse = {
+      headers: {
+        getSetCookie: undefined,
+        get: (key: string) => (key === "set-cookie" ? "custom_session=val123; Path=/" : null),
+      },
+    } as any;
+
+    store.setFromResponse(mockResponse);
+    expect(store.getCookie("custom_session")).toBe("val123");
   });
 
   it("should format cookies for outgoing request header", () => {

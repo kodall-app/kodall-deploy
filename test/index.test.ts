@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import * as indexExports from "../src/index.js";
+
+describe("Index / Public API Module", () => {
+  it("should export all expected functions and classes", () => {
+    expect(indexExports.deploy).toBeDefined();
+    expect(indexExports.rollback).toBeDefined();
+    expect(indexExports.recordDeployment).toBeDefined();
+    expect(indexExports.readDeploymentHistory).toBeDefined();
+    expect(indexExports.getDeploymentHistory).toBeDefined();
+    expect(indexExports.getPreviousDeployment).toBeDefined();
+    expect(indexExports.clearDeploymentHistory).toBeDefined();
+    expect(indexExports.ensureGitIgnoreEntry).toBeDefined();
+    expect(indexExports.createArchive).toBeDefined();
+    expect(indexExports.resolveConfig).toBeDefined();
+    expect(indexExports.findTargetEnvironments).toBeDefined();
+    expect(indexExports.loadConfigFile).toBeDefined();
+    expect(indexExports.saveConfigFile).toBeDefined();
+    expect(indexExports.validateDistDirectory).toBeDefined();
+    expect(indexExports.KodallNodeClient).toBeDefined();
+    expect(indexExports.CookieStore).toBeDefined();
+    expect(indexExports.checkBuildStatus).toBeDefined();
+    expect(indexExports.runBuild).toBeDefined();
+    expect(indexExports.checkEndpointHealth).toBeDefined();
+    expect(indexExports.listEnvironments).toBeDefined();
+    expect(indexExports.removeEnvironment).toBeDefined();
+    expect(indexExports.cloneEnvironment).toBeDefined();
+    expect(indexExports.setDefaultEnvironment).toBeDefined();
+    expect(indexExports.checkSingleEnvironmentStatus).toBeDefined();
+    expect(indexExports.checkAllEnvironmentsStatus).toBeDefined();
+    expect(indexExports.classifyHealthState).toBeDefined();
+    expect(indexExports.generateCIWorkflow).toBeDefined();
+    expect(indexExports.generateGitHubActionsWorkflow).toBeDefined();
+    expect(indexExports.generateGitLabCIWorkflow).toBeDefined();
+    expect(indexExports.generateBitbucketPipelinesWorkflow).toBeDefined();
+    expect(indexExports.detectPackageManager).toBeDefined();
+    expect(indexExports.detectExistingCIProvider).toBeDefined();
+    expect(indexExports.detectFramework).toBeDefined();
+    expect(indexExports.sanitizeProjectName).toBeDefined();
+  });
+});

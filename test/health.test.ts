@@ -1,5 +1,5 @@
 import * as http from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { checkEndpointHealth } from "../src/core/health.js";
 
 describe("Health Check Ping", () => {
@@ -56,6 +56,31 @@ describe("Health Check Ping", () => {
   it("should handle network connection errors gracefully without throwing", async () => {
     const result = await checkEndpointHealth("http://127.0.0.1:59999/down");
     expect(result.ok).toBe(false);
+    expect(result.status).toBe(0);
+    expect(result.statusText).toBe("Network Error");
     expect(result.error).toBeDefined();
+
+    // Error without message
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue({});
+    const resNoMsg = await checkEndpointHealth("http://example.com");
+    expect(resNoMsg.error).toBe("Failed to reach endpoint");
+    globalThis.fetch = origFetch;
+  });
+
+  it("should handle timeout / AbortError gracefully", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      return Promise.reject(err);
+    });
+
+    const result = await checkEndpointHealth("http://example.com", 100);
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(408);
+    expect(result.statusText).toBe("Request Timeout");
+
+    globalThis.fetch = origFetch;
   });
 });

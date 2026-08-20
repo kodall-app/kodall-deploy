@@ -61,7 +61,7 @@ export function detectFramework(cwd: string = process.cwd()): DetectedProject {
     } else if (allDeps["nuxt"] || allDeps["nuxt3"]) {
       framework = "Nuxt";
       distPath = "./.output/public";
-    } else if (allDeps["@remix-run/react"]) {
+    } else if (allDeps["@remix-run/react"] || allDeps["@remix-run/dev"]) {
       framework = "Remix";
       distPath = "./build/client";
     } else if (allDeps["@angular/core"] || allDeps["@angular/cli"]) {

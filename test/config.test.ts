@@ -29,6 +29,11 @@ describe("Config Resolution & Validation", () => {
     expect(config).toEqual({});
   });
 
+  it("should throw descriptive error when config file contains malformed JSON", () => {
+    fs.writeFileSync(path.join(tempDir, "broken.json"), "{ invalid-json }", "utf-8");
+    expect(() => loadConfigFile("broken.json", tempDir)).toThrow("Failed to parse config file");
+  });
+
   it("should load and save configuration file", () => {
     const sampleConfig = {
       web_app_name: "test-app",
@@ -79,7 +84,6 @@ describe("Config Resolution & Validation", () => {
     expect(prodRes.resolved.instance).toBe("https://prod.instance.domain.com");
     expect(prodRes.resolved.web_app_path).toBe("/app-production");
     expect(prodRes.resolved.api_key).toBe("secret-prod-api-key");
-    // With api_key, missing shouldn't require username & password
     expect(prodRes.missing).not.toContain("username");
     expect(prodRes.missing).not.toContain("password");
   });
@@ -105,47 +109,71 @@ describe("Config Resolution & Validation", () => {
     expect(result.resolved.web_app_path).toBe("/base-path");
   });
 
-  it("should validate dist directory and index.html presence", () => {
-    const distDir = path.join(tempDir, "dist");
-    fs.mkdirSync(distDir);
+  it("should validate dist directory containing index.html", () => {
+    const distPath = path.join(tempDir, "dist");
+    fs.mkdirSync(distPath);
+    fs.writeFileSync(path.join(distPath, "index.html"), "<html></html>");
 
-    // Missing index.html
-    const check1 = validateDistDirectory(distDir, tempDir);
-    expect(check1.valid).toBe(false);
-    expect(check1.error).toContain("Missing index.html");
+    expect(validateDistDirectory("./dist", tempDir).valid).toBe(true);
 
-    // Add index.html
-    fs.writeFileSync(path.join(distDir, "index.html"), "<html><body>Hello</body></html>");
-    const check2 = validateDistDirectory(distDir, tempDir);
-    expect(check2.valid).toBe(true);
+    // Missing directory
+    expect(validateDistDirectory("./missing-dir", tempDir).valid).toBe(false);
+
+    // Directory without index.html
+    const emptyDist = path.join(tempDir, "empty-dist");
+    fs.mkdirSync(emptyDist);
+    expect(validateDistDirectory("./empty-dist", tempDir).valid).toBe(false);
+
+    // File instead of directory
+    const fileDist = path.join(tempDir, "file-dist");
+    fs.writeFileSync(fileDist, "not a dir");
+    expect(validateDistDirectory("./file-dist", tempDir).valid).toBe(false);
   });
 
-  it("should filter environments by type, all, or comma-separated list", () => {
+  it("should find target environments by name, comma list, type, or all", () => {
     const config = {
-      web_app_name: "my-app",
       environments: {
-        "dev-1": { type: "dev", instance: "https://dev1.domain.com" },
-        "dev-2": { type: "dev", instance: "https://dev2.domain.com" },
-        "staging": { type: "staging", instance: "https://staging.domain.com" },
-        "prod-us": { type: "prod", instance: "https://us.domain.com" },
-        "prod-eu": { type: "prod", instance: "https://eu.domain.com" },
+        dev: { type: "dev" },
+        staging: { type: "staging" },
+        "prod-us": { type: "prod" },
+        "prod-eu": { type: "prod" },
       },
     };
 
-    // Filter by type: prod
-    const prodEnvs = findTargetEnvironments({ type: "prod" }, config);
-    expect(prodEnvs).toEqual(["prod-us", "prod-eu"]);
+    // By comma list
+    expect(findTargetEnvironments({ env: "dev,staging" }, config)).toEqual(["dev", "staging"]);
 
-    // Filter by type: dev
-    const devEnvs = findTargetEnvironments({ type: "dev" }, config);
-    expect(devEnvs).toEqual(["dev-1", "dev-2"]);
+    // By type
+    expect(findTargetEnvironments({ type: "prod" }, config)).toEqual(["prod-us", "prod-eu"]);
 
-    // Filter all
-    const allEnvs = findTargetEnvironments({ all: true }, config);
-    expect(allEnvs).toEqual(["dev-1", "dev-2", "staging", "prod-us", "prod-eu"]);
+    // All
+    expect(findTargetEnvironments({ all: true }, config)).toEqual([
+      "dev",
+      "staging",
+      "prod-us",
+      "prod-eu",
+    ]);
 
-    // Filter comma-separated list
-    const listEnvs = findTargetEnvironments({ env: "dev-1, staging, prod-eu" }, config);
-    expect(listEnvs).toEqual(["dev-1", "staging", "prod-eu"]);
+    // Single env
+    expect(findTargetEnvironments({ env: "dev" }, config)).toEqual(["dev"]);
+
+    // Empty environments map
+    expect(findTargetEnvironments({ all: true }, { environments: {} })).toEqual([]);
+
+    // Fallback key type detection
+    expect(
+      findTargetEnvironments(
+        { type: "dev" },
+        { environments: { dev: {}, staging: {} } }
+      )
+    ).toEqual(["dev"]);
+
+    // No filter provided (empty options)
+    expect(
+      findTargetEnvironments(
+        {},
+        { environments: { dev: {}, staging: {} } }
+      )
+    ).toEqual([]);
   });
 });

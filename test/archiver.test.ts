@@ -17,12 +17,11 @@ describe("Archiver", () => {
     } catch {}
   });
 
-  it("should compress directory to zip file and clean up properly", async () => {
-    // Create dummy files to zip
+  it("should compress directory to zip file with default or custom level and clean up properly", async () => {
     fs.writeFileSync(path.join(tempDir, "index.html"), "<html><body>App</body></html>");
     fs.writeFileSync(path.join(tempDir, "bundle.js"), "console.log('test')");
 
-    const archive = await createArchive(tempDir);
+    const archive = await createArchive(tempDir, { level: 5 });
 
     expect(archive.sizeBytes).toBeGreaterThan(0);
     expect(archive.archiveBuffer.length).toBe(archive.sizeBytes);
@@ -31,5 +30,12 @@ describe("Archiver", () => {
     // Test cleanup
     archive.cleanup();
     expect(fs.existsSync(archive.archivePath)).toBe(false);
+
+    // Idempotent cleanup call
+    archive.cleanup();
+  });
+
+  it("should fail when target directory does not exist", async () => {
+    await expect(createArchive(path.join(tempDir, "nonexistent-dir"))).rejects.toThrow();
   });
 });

@@ -60,6 +60,42 @@ describe("Environment Manager", () => {
     expect(prod?.hasApiKey).toBe(true);
   });
 
+  it("should handle custom environment type and legacy single config without environments object", () => {
+    // Custom env
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        environments: {
+          sandbox: { instance: "https://sandbox.kodall.ro" },
+        },
+      }),
+      "utf-8"
+    );
+    const customList = listEnvironments(configPath, tempDir);
+    expect(customList[0].type).toBe("custom");
+
+    // Legacy config (single instance)
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        instance: "https://legacy.kodall.ro",
+        web_app_name: "legacy-app",
+        api_key: "legacy-key",
+      }),
+      "utf-8"
+    );
+    const legacyList = listEnvironments(configPath, tempDir);
+    expect(legacyList.length).toBe(1);
+    expect(legacyList[0].name).toBe("default");
+    expect(legacyList[0].instance).toBe("https://legacy.kodall.ro");
+    expect(legacyList[0].hasApiKey).toBe(true);
+  });
+
+  it("should handle empty or missing config file in listEnvironments", () => {
+    const list = listEnvironments("nonexistent.json", tempDir);
+    expect(list).toEqual([]);
+  });
+
   it("should remove an environment and update default if needed", () => {
     fs.writeFileSync(
       configPath,
@@ -83,6 +119,18 @@ describe("Environment Manager", () => {
     expect(updatedList[0].isDefault).toBe(true);
   });
 
+  it("should fail when removing non-existent environment", () => {
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        environments: { dev: { instance: "https://dev.kodall.ro" } },
+      }),
+      "utf-8"
+    );
+
+    expect(() => removeEnvironment("ghost", configPath, tempDir)).toThrow("not found");
+  });
+
   it("should clone an existing environment with overrides", () => {
     fs.writeFileSync(
       configPath,
@@ -101,39 +149,48 @@ describe("Environment Manager", () => {
 
     const updatedConfig = cloneEnvironment(
       "dev",
-      "uat",
-      {
-        instance: "https://uat.kodall.ro",
-        type: "test",
-      },
+      "dev2",
+      { web_app_path: "/dev2-path" },
       configPath,
       tempDir
     );
 
-    expect(updatedConfig.environments?.uat).toBeDefined();
-    expect(updatedConfig.environments?.uat.instance).toBe("https://uat.kodall.ro");
-    expect(updatedConfig.environments?.uat.web_app_path).toBe("/dev-path");
-    expect(updatedConfig.environments?.uat.type).toBe("test");
+    expect(updatedConfig.environments?.dev2).toBeDefined();
+
+    const list = listEnvironments(configPath, tempDir);
+    expect(list.length).toBe(2);
+
+    const dev2 = list.find((e) => e.name === "dev2");
+    expect(dev2).toBeDefined();
+    expect(dev2?.webAppPath).toBe("/dev2-path");
+    expect(dev2?.instance).toBe("https://dev.kodall.ro");
   });
 
-  it("should throw when cloning to an already existing environment", () => {
+  it("should fail when cloning non-existent environment or when target already exists", () => {
     fs.writeFileSync(
       configPath,
       JSON.stringify({
         environments: {
           dev: { instance: "https://dev.kodall.ro" },
-          staging: { instance: "https://staging.kodall.ro" },
         },
       }),
       "utf-8"
     );
 
-    expect(() =>
-      cloneEnvironment("dev", "staging", {}, configPath, tempDir)
-    ).toThrowError(/already exists/);
+    expect(() => cloneEnvironment("unknown", "new-env", {}, configPath, tempDir)).toThrow(
+      "not found"
+    );
+
+    expect(() => cloneEnvironment("dev", "dev", {}, configPath, tempDir)).toThrow(
+      "already exists"
+    );
+
+    expect(() => cloneEnvironment("dev", "dev2", {}, "missing.json", tempDir)).toThrow(
+      "does not exist"
+    );
   });
 
-  it("should set a new default environment", () => {
+  it("should set default environment properly", () => {
     fs.writeFileSync(
       configPath,
       JSON.stringify({
@@ -152,5 +209,18 @@ describe("Environment Manager", () => {
     const list = listEnvironments(configPath, tempDir);
     const prod = list.find((e) => e.name === "prod");
     expect(prod?.isDefault).toBe(true);
+  });
+
+  it("should fail when setting non-existent default environment or missing config", () => {
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        environments: { dev: { instance: "https://dev.kodall.ro" } },
+      }),
+      "utf-8"
+    );
+
+    expect(() => setDefaultEnvironment("unknown", configPath, tempDir)).toThrow("not found");
+    expect(() => setDefaultEnvironment("dev", "missing.json", tempDir)).toThrow("does not exist");
   });
 });

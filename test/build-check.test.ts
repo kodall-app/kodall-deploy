@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkBuildStatus } from "../src/core/build-check.js";
+import { checkBuildStatus, runBuild } from "../src/core/build-check.js";
 
 describe("Build Status Checker", () => {
   let tempDir: string;
@@ -49,6 +49,28 @@ describe("Build Status Checker", () => {
 
     const result = checkBuildStatus("./dist", tempDir);
     expect(result.exists).toBe(true);
+    expect(result.isStale).toBe(false);
+  });
+
+  it("should ignore node_modules, package-lock.json, and other ignored files", () => {
+    // Create dist/index.html
+    const distDir = path.join(tempDir, "dist");
+    fs.mkdirSync(distDir, { recursive: true });
+    const indexFile = path.join(distDir, "index.html");
+    fs.writeFileSync(indexFile, "<html></html>", "utf-8");
+
+    const pastTime = new Date(Date.now() - 5000);
+    fs.utimesSync(indexFile, pastTime, pastTime);
+
+    // Create ignored files with newer timestamp
+    const nmDir = path.join(tempDir, "node_modules", "some-pkg");
+    fs.mkdirSync(nmDir, { recursive: true });
+    fs.writeFileSync(path.join(nmDir, "index.ts"), "export const x = 1;");
+
+    fs.writeFileSync(path.join(tempDir, "package-lock.json"), "{}");
+    fs.writeFileSync(path.join(tempDir, ".DS_Store"), "");
+
+    const result = checkBuildStatus("./dist", tempDir);
     expect(result.isStale).toBe(false);
   });
 
@@ -99,5 +121,43 @@ describe("Build Status Checker", () => {
     const result = checkBuildStatus("./dist", tempDir);
     expect(result.exists).toBe(true);
     expect(result.isStale).toBe(false);
+  });
+
+  describe("runBuild", () => {
+    it("should execute npm run build in project", async () => {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify({
+          name: "test-build-app",
+          scripts: { build: "node -e \"console.log('build ok')\"" },
+        }),
+        "utf-8"
+      );
+
+      const res = await runBuild(tempDir);
+      expect(res.success).toBe(true);
+      expect(res.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it("should report build failure when npm script fails", async () => {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify({
+          name: "test-fail-app",
+          scripts: { build: "node -e \"process.exit(1)\"" },
+        }),
+        "utf-8"
+      );
+
+      const result = await runBuild(tempDir);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("failed with exit code 1");
+    });
+
+    it("should handle error when directory does not exist", async () => {
+      const result = await runBuild(path.join(tempDir, "missing-dir-12345"));
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
   });
 });

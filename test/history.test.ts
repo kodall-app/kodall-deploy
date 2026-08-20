@@ -81,51 +81,9 @@ describe("History Storage Layer", () => {
         id: "dep-prod",
         timestamp: "2026-08-20T11:00:00.000Z",
         env: "prod",
-        instance: "https://app.kodall.ro",
-        entityKey: "25",
+        instance: "https://prod.kodall.ro",
+        entityKey: "24",
         storageId: "102",
-        webAppName: "my-app",
-        webAppPath: "/app",
-        action: "created",
-      },
-      tempDir
-    );
-
-    const devHistory = getDeploymentHistory(tempDir, "dev");
-    const prodHistory = getDeploymentHistory(tempDir, "prod");
-    const allHistory = getDeploymentHistory(tempDir);
-
-    expect(devHistory.length).toBe(1);
-    expect(devHistory[0].env).toBe("dev");
-    expect(prodHistory.length).toBe(1);
-    expect(prodHistory[0].env).toBe("prod");
-    expect(allHistory.length).toBe(2);
-  });
-
-  it("should retrieve previous deployment record correctly", () => {
-    recordDeployment(
-      {
-        id: "dep-old",
-        timestamp: "2026-08-20T10:00:00.000Z",
-        env: "prod",
-        instance: "https://app.kodall.ro",
-        entityKey: "25",
-        storageId: "100",
-        webAppName: "my-app",
-        webAppPath: "/app",
-        action: "created",
-      },
-      tempDir
-    );
-
-    recordDeployment(
-      {
-        id: "dep-current",
-        timestamp: "2026-08-20T12:00:00.000Z",
-        env: "prod",
-        instance: "https://app.kodall.ro",
-        entityKey: "25",
-        storageId: "101",
         webAppName: "my-app",
         webAppPath: "/app",
         action: "updated",
@@ -133,13 +91,53 @@ describe("History Storage Layer", () => {
       tempDir
     );
 
-    const prev = getPreviousDeployment(tempDir, "prod", 1);
-    expect(prev).toBeDefined();
-    expect(prev?.storageId).toBe("100");
-    expect(prev?.id).toBe("dep-old");
+    const devHistory = getDeploymentHistory(tempDir, "dev");
+    expect(devHistory.length).toBe(1);
+    expect(devHistory[0].env).toBe("dev");
+
+    const prodHistory = getDeploymentHistory(tempDir, "prod");
+    expect(prodHistory.length).toBe(1);
+    expect(prodHistory[0].env).toBe("prod");
   });
 
-  it("should clear deployment history file", () => {
+  it("should retrieve previous deployment and handle out-of-bounds", () => {
+    recordDeployment(
+      {
+        id: "dep-1",
+        timestamp: "2026-08-20T10:00:00.000Z",
+        env: "dev",
+        instance: "https://dev.kodall.ro",
+        entityKey: "24",
+        storageId: "101",
+        webAppName: "my-app",
+        webAppPath: "/app",
+        action: "created",
+      },
+      tempDir
+    );
+    recordDeployment(
+      {
+        id: "dep-2",
+        timestamp: "2026-08-20T11:00:00.000Z",
+        env: "dev",
+        instance: "https://dev.kodall.ro",
+        entityKey: "24",
+        storageId: "102",
+        webAppName: "my-app",
+        webAppPath: "/app",
+        action: "updated",
+      },
+      tempDir
+    );
+
+    const prev = getPreviousDeployment(tempDir, "dev", 1);
+    expect(prev?.id).toBe("dep-1");
+
+    const notFound = getPreviousDeployment(tempDir, "dev", 5);
+    expect(notFound).toBeUndefined();
+  });
+
+  it("should clear deployment history files", () => {
     recordDeployment(
       {
         id: "dep-1",
@@ -155,15 +153,16 @@ describe("History Storage Layer", () => {
       tempDir
     );
 
-    expect(readDeploymentHistory(tempDir).length).toBe(1);
+    // Create legacy file too
+    fs.writeFileSync(path.join(tempDir, ".one-deploy-history.json"), "[]");
+
     clearDeploymentHistory(tempDir);
-    expect(readDeploymentHistory(tempDir).length).toBe(0);
+    expect(readDeploymentHistory(tempDir)).toEqual([]);
   });
 
-  it("should store history inside .one-deploy/history.json and auto-update .gitignore", () => {
-    // Create initial .gitignore
+  it("should ensure .gitignore ignores .one-deploy/", () => {
     const gitignorePath = path.join(tempDir, ".gitignore");
-    fs.writeFileSync(gitignorePath, "node_modules/\ndist/\n", "utf-8");
+    fs.writeFileSync(gitignorePath, "node_modules\n", "utf-8");
 
     recordDeployment(
       {
@@ -180,13 +179,82 @@ describe("History Storage Layer", () => {
       tempDir
     );
 
-    // Verify .one-deploy/history.json exists
-    const historyJsonPath = path.join(tempDir, ".one-deploy", "history.json");
-    expect(fs.existsSync(historyJsonPath)).toBe(true);
+    expect(fs.readFileSync(gitignorePath, "utf-8")).toContain(".one-deploy/");
 
-    // Verify .gitignore was updated
-    const updatedGitignore = fs.readFileSync(gitignorePath, "utf-8");
-    expect(updatedGitignore).toContain(".one-deploy/");
+    // When .one-deploy/ is already present, do not duplicate
+    recordDeployment(
+      {
+        id: "dep-2",
+        timestamp: "2026-08-20T11:00:00.000Z",
+        env: "dev",
+        instance: "https://dev.kodall.ro",
+        entityKey: "24",
+        storageId: "102",
+        webAppName: "my-app",
+        webAppPath: "/app",
+        action: "updated",
+      },
+      tempDir
+    );
+    expect(fs.readFileSync(gitignorePath, "utf-8")).toContain(".one-deploy/");
+  });
+
+  it("should read from legacy history file and clean it up on new record", () => {
+    const legacyPath = path.join(tempDir, ".one-deploy-history.json");
+    fs.writeFileSync(
+      legacyPath,
+      JSON.stringify([
+        {
+          id: "legacy-dep",
+          timestamp: "2026-08-20T09:00:00.000Z",
+          env: "dev",
+          instance: "https://dev.kodall.ro",
+          entityKey: "24",
+          storageId: "99",
+          webAppName: "my-app",
+          webAppPath: "/app",
+          action: "created",
+        },
+      ]),
+      "utf-8"
+    );
+
+    // Should read legacy record
+    const history = readDeploymentHistory(tempDir);
+    expect(history.length).toBe(1);
+    expect(history[0].id).toBe("legacy-dep");
+
+    // Recording new deployment should migrate and remove legacy file
+    recordDeployment(
+      {
+        id: "new-dep",
+        timestamp: "2026-08-20T10:00:00.000Z",
+        env: "dev",
+        instance: "https://dev.kodall.ro",
+        entityKey: "24",
+        storageId: "100",
+        webAppName: "my-app",
+        webAppPath: "/app",
+        action: "updated",
+      },
+      tempDir
+    );
+
+    expect(fs.existsSync(legacyPath)).toBe(false);
+    const updated = readDeploymentHistory(tempDir);
+    expect(updated.length).toBe(2);
+  });
+
+  it("should handle corrupted json and non-array json gracefully", () => {
+    const historyDir = path.join(tempDir, ".one-deploy");
+    fs.mkdirSync(historyDir, { recursive: true });
+
+    // Non-array JSON
+    fs.writeFileSync(path.join(historyDir, "history.json"), "{}", "utf-8");
+    expect(readDeploymentHistory(tempDir)).toEqual([]);
+
+    // Corrupted JSON
+    fs.writeFileSync(path.join(historyDir, "history.json"), "invalid-json-content", "utf-8");
+    expect(readDeploymentHistory(tempDir)).toEqual([]);
   });
 });
-

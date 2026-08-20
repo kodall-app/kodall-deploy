@@ -7,22 +7,28 @@ import type { RollbackOptions, RollbackResult } from "./types.js";
 /**
  * Roll back a ONE Framework web application to a previous storage archive
  */
-export async function rollback(options: RollbackOptions): Promise<RollbackResult> {
+export async function rollback(
+  options: RollbackOptions,
+  cwd: string = process.cwd()
+): Promise<RollbackResult> {
   const startTime = Date.now();
   const notify = options.onProgress || (() => {});
 
   // 1. Resolve configuration
   notify("config", "start", "Resolving environment configuration for rollback...");
-  const configState = resolveConfig({
-    configPath: options.configPath,
-    env: options.env,
-    instance: options.instance,
-    webAppName: options.webAppName,
-    webAppPath: options.webAppPath,
-    username: options.username,
-    password: options.password,
-    apiKey: options.apiKey,
-  });
+  const configState = resolveConfig(
+    {
+      configPath: options.configPath,
+      env: options.env,
+      instance: options.instance,
+      webAppName: options.webAppName,
+      webAppPath: options.webAppPath,
+      username: options.username,
+      password: options.password,
+      apiKey: options.apiKey,
+    },
+    cwd
+  );
 
   const { instance, web_app_name, web_app_path, api_key, username, password, env } =
     configState.resolved;
@@ -40,7 +46,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackResult
 
   if (!targetStorageId) {
     const steps = options.stepsBack ?? 1;
-    previousRecord = getPreviousDeployment(process.cwd(), env, steps);
+    previousRecord = getPreviousDeployment(cwd, env, steps);
     if (!previousRecord) {
       throw new Error(
         `No previous deployment history found for environment "${env || "default"}" to roll back to.`
