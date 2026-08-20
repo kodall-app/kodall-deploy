@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { checkBuildStatus, runBuild } from "./core/build-check.js";
 import {
   DEFAULT_CONFIG_FILENAME,
   findTargetEnvironments,
@@ -39,6 +40,9 @@ ${bold("OPTIONS:")}
       --add-env [name]      Add or update an environment in config_web_app.json
   -H, --history             Display deployment history for environment(s)
   -R, --rollback [storage]  Roll back web application to a previous storage build
+      --build               Force running "npm run build" before deploying
+      --no-build            Skip build check and build prompts
+      --no-health-check     Skip post-deployment live HTTP health check ping
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
       --init                Interactively generate or update config_web_app.json
@@ -148,6 +152,10 @@ async function main() {
     "add-env": { type: "string" as const },
     history: { type: "boolean" as const, short: "H", default: false },
     rollback: { type: "string" as const, short: "R" },
+    build: { type: "boolean" as const, default: false },
+    "no-build": { type: "boolean" as const, default: false },
+    "health-check": { type: "boolean" as const, default: true },
+    "no-health-check": { type: "boolean" as const, default: false },
     ci: { type: "boolean" as const, default: false },
     "non-interactive": { type: "boolean" as const, default: false },
     "dry-run": { type: "boolean" as const, default: false },
@@ -396,6 +404,14 @@ async function main() {
       }
     }
 
+    // Ensure build is fresh before starting batch deployment
+    const effectiveBatchDist = flags.dist || loadedConfig.dist_path || "./dist";
+    const buildOk = await ensureBuildFresh(effectiveBatchDist, flags, isCi);
+    if (!buildOk) {
+      process.exitCode = 1;
+      return;
+    }
+
     const results: Array<{ env: string; result?: any; error?: string }> = [];
     let hasFailures = false;
 
@@ -414,6 +430,7 @@ async function main() {
         apiKey: flags["api-key"],
         ci: isCi,
         dryRun: flags["dry-run"],
+        healthCheck: !flags["no-health-check"],
       };
 
       const spinner = new Spinner("", false);
@@ -536,6 +553,16 @@ async function main() {
     }
   }
 
+  // Ensure build is fresh before starting single deployment
+  const effectiveSingleDist = deployOpts.distPath || configState.resolved.dist_path || "./dist";
+  const buildOk = await ensureBuildFresh(effectiveSingleDist, flags, isCi);
+  if (!buildOk) {
+    process.exitCode = 1;
+    return;
+  }
+
+  deployOpts.healthCheck = !flags["no-health-check"];
+
   // Spinner & progress handling
   const spinner = new Spinner("", false);
 
@@ -572,6 +599,12 @@ async function main() {
           (result.storageId ? ` (Storage: ${result.storageId})` : "") +
           dim(` [${(result.durationMs / 1000).toFixed(2)}s]`)
       );
+
+      if (result.healthCheck?.ok) {
+        console.log(`  ${green("✔")} ${bold("Live URL:")} ${cyan(result.healthCheck.url)} ${dim(`(${result.healthCheck.status} ${result.healthCheck.statusText})`)}`);
+      } else if (result.healthCheck?.status) {
+        console.log(`  ${yellow("⚠")} ${bold("Live URL check:")} ${result.healthCheck.url} ${dim(`(Status: ${result.healthCheck.status} ${result.healthCheck.statusText})`)}`);
+      }
     }
     process.exitCode = 0;
   } catch (error) {
@@ -816,6 +849,68 @@ async function handleAddEnv(configPath: string, initialEnvName?: string) {
   saveConfigFile(configPath, config);
   console.log("");
   log.success(`Environment "${envName}" saved to ${configPath}!`);
+}
+
+async function ensureBuildFresh(distPath: string, flags: any, isCi: boolean): Promise<boolean> {
+  if (flags["no-build"]) {
+    return true;
+  }
+
+  const buildStatus = checkBuildStatus(distPath);
+
+  if (flags.build) {
+    console.log(cyan("\n▸ Executing project build (--build)..."));
+    const spinner = new Spinner("Building web application...", false);
+    spinner.start("Building web application...");
+    const buildRes = await runBuild();
+    if (!buildRes.success) {
+      spinner.fail(`Build failed: ${buildRes.error}`);
+      return false;
+    }
+    spinner.succeed(`Build completed in ${(buildRes.durationMs / 1000).toFixed(2)}s!`);
+    return true;
+  }
+
+  if (isCi) {
+    return true;
+  }
+
+  if (!buildStatus.exists && buildStatus.hasBuildScript) {
+    const doBuild = await askConfirm(
+      `Build directory "${distPath}" is missing. Run "npm run build" now?`,
+      true
+    );
+    if (doBuild) {
+      const spinner = new Spinner("Building web application...", false);
+      spinner.start("Building web application...");
+      const buildRes = await runBuild();
+      if (!buildRes.success) {
+        spinner.fail(`Build failed: ${buildRes.error}`);
+        return false;
+      }
+      spinner.succeed(`Build completed in ${(buildRes.durationMs / 1000).toFixed(2)}s!`);
+      return true;
+    }
+  } else if (buildStatus.isStale && buildStatus.hasBuildScript) {
+    const fileHint = buildStatus.newestSourceFile ? ` (modified: ${buildStatus.newestSourceFile})` : "";
+    const doBuild = await askConfirm(
+      `Source files were modified after the last build${fileHint}. Rebuild before deploying?`,
+      true
+    );
+    if (doBuild) {
+      const spinner = new Spinner("Building web application...", false);
+      spinner.start("Building web application...");
+      const buildRes = await runBuild();
+      if (!buildRes.success) {
+        spinner.fail(`Build failed: ${buildRes.error}`);
+        return false;
+      }
+      spinner.succeed(`Build completed in ${(buildRes.durationMs / 1000).toFixed(2)}s!`);
+      return true;
+    }
+  }
+
+  return true;
 }
 
 function displayHistory(records: DeploymentRecord[], envFilter?: string): void {

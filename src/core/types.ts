@@ -54,6 +54,9 @@ export interface DeployOptions {
   ci?: boolean;
   dryRun?: boolean;
   silent?: boolean;
+  build?: boolean;
+  noBuild?: boolean;
+  healthCheck?: boolean;
   onProgress?: (
     step: string,
     status: "start" | "success" | "warn" | "error" | "info",
@@ -71,6 +74,7 @@ export interface DeployResult {
   action?: "created" | "updated" | "dry-run";
   durationMs: number;
   archiveSizeBytes?: number;
+  healthCheck?: HealthCheckResult;
   error?: Error | string;
 }
 
@@ -108,6 +112,7 @@ export interface RollbackOptions {
   stepsBack?: number;
   ci?: boolean;
   silent?: boolean;
+  healthCheck?: boolean;
   onProgress?: (
     step: string,
     status: "start" | "success" | "warn" | "error" | "info",
@@ -126,6 +131,7 @@ export interface RollbackResult {
   webAppName: string;
   webAppPath: string;
   durationMs: number;
+  healthCheck?: HealthCheckResult;
   error?: Error | string;
 }
 
@@ -137,6 +143,31 @@ export interface DetectedProject {
   distPath: string;
   appName: string;
   hasBuildScript: boolean;
+}
+
+/**
+ * Result of checking whether a project build is present and fresh
+ */
+export interface BuildCheckResult {
+  exists: boolean;
+  isStale: boolean;
+  hasBuildScript: boolean;
+  distPath: string;
+  newestSourceFile?: string;
+  newestSourceMtime?: number;
+  distMtime?: number;
+}
+
+/**
+ * Result of an HTTP health check ping
+ */
+export interface HealthCheckResult {
+  url: string;
+  ok: boolean;
+  status: number;
+  statusText: string;
+  durationMs: number;
+  error?: string;
 }
 
 

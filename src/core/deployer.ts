@@ -185,6 +185,32 @@ export async function deploy(
       `Web application successfully ${action} (Entity Key: ${finalKey})!`
     );
 
+    // 8. Live Health Check Ping
+    let healthResult: any;
+    if (options.healthCheck !== false) {
+      const liveUrl = `${config.instance}${config.web_app_path}`;
+      notify("health", "start", `Checking live endpoint: ${liveUrl}...`);
+      try {
+        const { checkEndpointHealth } = await import("./health.js");
+        healthResult = await checkEndpointHealth(liveUrl);
+        if (healthResult.ok) {
+          notify(
+            "health",
+            "success",
+            `Live check passed: ${liveUrl} (${healthResult.status} ${healthResult.statusText}) [${healthResult.durationMs}ms]`
+          );
+        } else {
+          notify(
+            "health",
+            "warn",
+            `Live endpoint check: ${liveUrl} returned ${healthResult.status} ${healthResult.statusText}`
+          );
+        }
+      } catch {
+        // Non-fatal if health check ping fails
+      }
+    }
+
     const durationMs = Date.now() - startTime;
 
     // Record deployment event in history
@@ -215,6 +241,7 @@ export async function deploy(
       entityKey: finalKey,
       action,
       archiveSizeBytes: archive.sizeBytes,
+      healthCheck: healthResult,
       durationMs,
     };
   } finally {
