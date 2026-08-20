@@ -94,13 +94,19 @@ export function resolveConfig(
     envOverrides.web_app_name ||
     config.web_app_name;
 
-  const web_app_path =
+  const raw_web_app_path =
     options.webAppPath ||
     process.env.ONE_APP_PATH ||
     process.env.KODALL_APP_PATH ||
     process.env.ONE_WEB_APP_PATH ||
     envOverrides.web_app_path ||
     config.web_app_path;
+
+  const web_app_path = raw_web_app_path
+    ? raw_web_app_path.startsWith("/")
+      ? raw_web_app_path
+      : `/${raw_web_app_path}`
+    : undefined;
 
   const dist_path =
     options.distPath ||

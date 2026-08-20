@@ -91,12 +91,12 @@ async function main() {
 
   if (flags.help) {
     console.log(HELP_TEXT);
-    process.exit(0);
+    return;
   }
 
   if (flags.version) {
     console.log(VERSION);
-    process.exit(0);
+    return;
   }
 
   const isCi = flags.ci || flags["non-interactive"] || Boolean(process.env.CI);
@@ -107,7 +107,7 @@ async function main() {
   // Handle --init command
   if (flags.init) {
     await handleInit(configPath);
-    process.exit(0);
+    return;
   }
 
   // Load existing config if available
@@ -225,13 +225,13 @@ async function main() {
           dim(` [${(result.durationMs / 1000).toFixed(2)}s]`)
       );
     }
-    process.exit(0);
+    process.exitCode = 0;
   } catch (error) {
     spinner.stop();
     console.log("");
     log.error(bold(red("Deployment failed:")));
     console.error(dim((error as Error).message || String(error)));
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
@@ -266,18 +266,18 @@ async function handleInit(configPath: string) {
 
   const envs: Record<string, any> = {};
 
-  const devUrl = await askText("Dev Instance URL", "https://dev.instance.onesoftware.ro");
+  const devUrl = await askText("Dev Instance URL", "https://dev.instance.kodall.ro");
   envs.dev = { instance: devUrl };
 
   const addStaging = await askConfirm("Add staging environment?", true);
   if (addStaging) {
-    const stagingUrl = await askText("Staging Instance URL", "https://staging.instance.onesoftware.ro");
+    const stagingUrl = await askText("Staging Instance URL", "https://staging.instance.kodall.ro");
     envs.staging = { instance: stagingUrl };
   }
 
   const addProd = await askConfirm("Add prod environment?", true);
   if (addProd) {
-    const prodUrl = await askText("Prod Instance URL", "https://app.instance.onesoftware.ro");
+    const prodUrl = await askText("Prod Instance URL", "https://app.instance.kodall.ro");
     envs.prod = { instance: prodUrl };
   }
 

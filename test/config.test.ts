@@ -69,14 +69,14 @@ describe("Config Resolution & Validation", () => {
     expect(devRes.targetEnv).toBe("dev");
     expect(devRes.resolved.instance).toBe("https://dev.instance.domain.com");
     expect(devRes.resolved.web_app_name).toBe("my-app");
-    expect(devRes.resolved.web_app_path).toBe("app-root");
+    expect(devRes.resolved.web_app_path).toBe("/app-root");
     expect(devRes.resolved.dist_path).toBe("./build");
 
     // Resolve specific env (prod)
     const prodRes = resolveConfig({ env: "prod" }, tempDir);
     expect(prodRes.targetEnv).toBe("prod");
     expect(prodRes.resolved.instance).toBe("https://prod.instance.domain.com");
-    expect(prodRes.resolved.web_app_path).toBe("app-production");
+    expect(prodRes.resolved.web_app_path).toBe("/app-production");
     expect(prodRes.resolved.api_key).toBe("secret-prod-api-key");
     // With api_key, missing shouldn't require username & password
     expect(prodRes.missing).not.toContain("username");
@@ -101,7 +101,7 @@ describe("Config Resolution & Validation", () => {
 
     expect(result.resolved.instance).toBe("https://cli-override.instance.com");
     expect(result.resolved.web_app_name).toBe("cli-app");
-    expect(result.resolved.web_app_path).toBe("base-path");
+    expect(result.resolved.web_app_path).toBe("/base-path");
   });
 
   it("should validate dist directory and index.html presence", () => {
