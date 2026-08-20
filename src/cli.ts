@@ -75,10 +75,6 @@ ${bold("OPTIONS:")}
       --init                Interactively generate or update config_web_app.json
   -v, --version             Display CLI version
   -h, --help                Display this help message
-      --dry-run             Validate build, test auth and query entity without mutating
-      --init                Interactively generate or update config_web_app.json
-  -v, --version             Display CLI version
-  -h, --help                Display this help message
 
 ${bold("ENVIRONMENT VARIABLES:")}
   ONE_ENV, KODALL_ENV               Target environment name
@@ -411,13 +407,13 @@ async function main() {
         "Deploy by environment type (dev / staging / prod)",
         "Deploy to ALL environments",
         "Custom one-off deployment",
-        "📜 View deployment history",
-        "⏮️  Rollback to a previous build",
-        "📊 Live remote status dashboard",
-        "⚙️  Manage environments",
-        "🤖 Generate CI/CD deployment workflow",
+        "View deployment history",
+        "Rollback to a previous build",
+        "Live remote status dashboard",
+        "Manage environments",
+        "Generate CI/CD deployment workflow",
       ];
-      const BACK_OPTION = "↩ Back";
+      const BACK_OPTION = "Back";
 
       while (true) {
         const mode = await askSelect("How would you like to deploy?", menuChoices, 0);
@@ -457,7 +453,7 @@ async function main() {
         } else if (mode === "Deploy to ALL environments") {
           selectedAll = true;
           break;
-        } else if (mode === "📜 View deployment history") {
+        } else if (mode === "View deployment history") {
           const envChoices = ["All environments", ...envKeys, BACK_OPTION];
           const chosenEnv = await askSelect("View history for which environment?", envChoices, 0);
           if (chosenEnv === BACK_OPTION) {
@@ -466,16 +462,16 @@ async function main() {
           const filter = chosenEnv === "All environments" ? undefined : chosenEnv;
           displayHistory(getDeploymentHistory(process.cwd(), filter), filter);
           continue;
-        } else if (mode === "⏮️  Rollback to a previous build") {
+        } else if (mode === "Rollback to a previous build") {
           await handleRollback(configPath, undefined, undefined, flags);
           return;
-        } else if (mode === "📊 Live remote status dashboard") {
+        } else if (mode === "Live remote status dashboard") {
           await handleStatusDashboard(configPath, undefined, flags);
           continue;
-        } else if (mode === "⚙️  Manage environments") {
+        } else if (mode === "Manage environments") {
           await handleManageEnvs(configPath);
           continue;
-        } else if (mode === "🤖 Generate CI/CD deployment workflow") {
+        } else if (mode === "Generate CI/CD deployment workflow") {
           await handleInitCI(configPath);
           continue;
         } else if (mode === "Custom one-off deployment") {
@@ -1092,7 +1088,7 @@ function displayHistory(records: DeploymentRecord[], envFilter?: string): void {
     grouped[envName].push(r);
   }
 
-  console.log(`\n${bold(cyan("📜 Deployment History"))}${envFilter ? dim(` (filter: ${envFilter})`) : ""}:\n`);
+  console.log(`\n${bold(cyan("Deployment History"))}${envFilter ? dim(` (filter: ${envFilter})`) : ""}:\n`);
 
   for (const [envName, envRecords] of Object.entries(grouped)) {
     const instanceInfo = envRecords[0]?.instance ? dim(` (${envRecords[0].instance})`) : "";
@@ -1300,14 +1296,14 @@ function displayStatusDashboard(statuses: RemoteEnvironmentStatus[]): void {
     return;
   }
 
-  console.log(`\n${bold(cyan("📊 Live Remote Environment Status:"))}\n`);
+  console.log(`\n${bold(cyan("Live Remote Environment Status:"))}\n`);
   console.log(
     "  " +
       dim(
         pad("DEFAULT", 10) +
         pad("ENV NAME", 16) +
         pad("HEALTH", 16) +
-        pad("HTTP CODE", 16) +
+        pad("HTTP STATUS", 28) +
         pad("LATENCY", 12) +
         pad("STORAGE ID", 14) +
         pad("ENTITY KEY", 14) +
@@ -1315,7 +1311,7 @@ function displayStatusDashboard(statuses: RemoteEnvironmentStatus[]): void {
         "INSTANCE URL"
       )
   );
-  console.log(dim("  " + "─".repeat(150)));
+  console.log(dim("  " + "─".repeat(164)));
 
   for (const s of statuses) {
     const defaultTag = s.isDefault ? green(bold("  ★")) : "";
@@ -1352,7 +1348,7 @@ function displayStatusDashboard(statuses: RemoteEnvironmentStatus[]): void {
         pad(defaultTag, 10) +
         pad(nameStr, 16) +
         pad(healthBadge, 16) +
-        pad(httpCodeStr, 16) +
+        pad(httpCodeStr, 28) +
         pad(latencyStr, 12) +
         pad(storageStr, 14) +
         pad(entityStr, 14) +
@@ -1484,13 +1480,13 @@ async function handleSetDefault(configPath: string, envName?: string) {
 }
 
 async function handleManageEnvs(configPath: string) {
-  const BACK_OPTION = "↩ Back";
+  const BACK_OPTION = "Back";
   const choices = [
-    "📋 List configured environments",
-    "➕ Add or edit an environment",
-    "🗑️  Remove an environment",
-    "📑 Clone / duplicate an environment",
-    "⭐ Set default environment",
+    "List configured environments",
+    "Add or edit an environment",
+    "Remove an environment",
+    "Clone / duplicate an environment",
+    "Set default environment",
     BACK_OPTION,
   ];
 
@@ -1498,22 +1494,22 @@ async function handleManageEnvs(configPath: string) {
     const action = await askSelect("Environment Management:", choices, 0);
     if (action === BACK_OPTION) {
       break;
-    } else if (action === "📋 List configured environments") {
+    } else if (action === "List configured environments") {
       await handleListEnvs(configPath);
-    } else if (action === "➕ Add or edit an environment") {
+    } else if (action === "Add or edit an environment") {
       await handleAddEnv(configPath);
-    } else if (action === "🗑️  Remove an environment") {
+    } else if (action === "Remove an environment") {
       await handleRemoveEnv(configPath);
-    } else if (action === "📑 Clone / duplicate an environment") {
+    } else if (action === "Clone / duplicate an environment") {
       await handleCloneEnv(configPath);
-    } else if (action === "⭐ Set default environment") {
+    } else if (action === "Set default environment") {
       await handleSetDefault(configPath);
     }
   }
 }
 
 async function handleInitCI(configPath: string) {
-  console.log(bold("\n🤖 Generate CI/CD Deployment Workflow:\n"));
+  console.log(bold("\nGenerate CI/CD Deployment Workflow:\n"));
 
   const detectedProvider = detectExistingCIProvider(process.cwd()) || "github";
   const detectedPM = detectPackageManager(process.cwd());
