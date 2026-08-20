@@ -30,6 +30,11 @@ export {
   setDefaultEnvironment,
   type EnvironmentInfo,
 } from "./core/env-manager.js";
+export {
+  checkSingleEnvironmentStatus,
+  checkAllEnvironmentsStatus,
+  classifyHealthState,
+} from "./core/status.js";
 export { detectFramework, sanitizeProjectName } from "./core/detector.js";
 export * from "./core/types.js";
 export * from "./client/types.js";

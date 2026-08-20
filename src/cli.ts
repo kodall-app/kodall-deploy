@@ -18,7 +18,14 @@ import {
 } from "./core/env-manager.js";
 import { getDeploymentHistory } from "./core/history.js";
 import { rollback } from "./core/rollback.js";
-import { DeploymentRecord, DeployOptions, RollbackOptions, WebAppConfigFile } from "./core/types.js";
+import { checkAllEnvironmentsStatus } from "./core/status.js";
+import {
+  DeploymentRecord,
+  DeployOptions,
+  RemoteEnvironmentStatus,
+  RollbackOptions,
+  WebAppConfigFile,
+} from "./core/types.js";
 import { bold, cyan, dim, green, log, magenta, pad, red, Spinner, yellow } from "./ui/logger.js";
 import { askConfirm, askPassword, askSelect, askText } from "./ui/prompts.js";
 
@@ -45,6 +52,7 @@ ${bold("OPTIONS:")}
   -k, --api-key <key>       API key authentication (bypasses username/password)
   -c, --config <file>       Path to config file [default: config_web_app.json]
   -l, --list-envs           List all configured environments in a table
+  -s, --status [env]        Display live status & health dashboard for environment(s)
       --add-env [name]      Add or update an environment in config_web_app.json
       --remove-env [name]   Remove an environment from configuration
       --clone-env <src> [dst] Duplicate/clone an existing environment
@@ -91,6 +99,8 @@ async function main() {
   let explicitRollback = false;
   let rollbackStorageId: string | undefined;
   let explicitListEnvs = false;
+  let explicitStatus = false;
+  let statusEnvName: string | undefined;
   let explicitRemoveEnv = false;
   let removeEnvName: string | undefined;
   let explicitCloneEnv = false;
@@ -118,6 +128,20 @@ async function main() {
     }
     if (arg === "-l" || arg === "--list-envs" || arg === "--list") {
       explicitListEnvs = true;
+      continue;
+    }
+    if (arg === "-s" || arg === "--status") {
+      const nextArg = rawArgs[i + 1];
+      if (nextArg && !nextArg.startsWith("-")) {
+        statusEnvName = nextArg;
+        i++;
+      }
+      explicitStatus = true;
+      continue;
+    }
+    if (arg.startsWith("--status=") || arg.startsWith("-s=")) {
+      statusEnvName = arg.split("=")[1];
+      explicitStatus = true;
       continue;
     }
     if (arg === "--remove-env" || arg === "--delete-env") {
@@ -221,6 +245,7 @@ async function main() {
     "api-key": { type: "string" as const, short: "k" },
     config: { type: "string" as const, short: "c" },
     "list-envs": { type: "boolean" as const, short: "l", default: false },
+    status: { type: "string" as const, short: "s" },
     "add-env": { type: "string" as const },
     "remove-env": { type: "string" as const },
     "clone-env": { type: "string" as const },
@@ -272,6 +297,13 @@ async function main() {
   // Handle --list-envs command
   if (flags["list-envs"] || explicitListEnvs) {
     await handleListEnvs(configPath);
+    return;
+  }
+
+  // Handle --status command
+  if (flags.status !== undefined || explicitStatus) {
+    const targetEnv = statusEnvName || flags.status || flags.env;
+    await handleStatusDashboard(configPath, targetEnv, flags);
     return;
   }
 
@@ -362,6 +394,7 @@ async function main() {
         "Custom one-off deployment",
         "📜 View deployment history",
         "⏮️  Rollback to a previous build",
+        "📊 Live remote status dashboard",
         "⚙️  Manage environments",
       ];
       const BACK_OPTION = "↩ Back";
@@ -416,6 +449,9 @@ async function main() {
         } else if (mode === "⏮️  Rollback to a previous build") {
           await handleRollback(configPath, undefined, undefined, flags);
           return;
+        } else if (mode === "📊 Live remote status dashboard") {
+          await handleStatusDashboard(configPath, undefined, flags);
+          continue;
         } else if (mode === "⚙️  Manage environments") {
           await handleManageEnvs(configPath);
           continue;
@@ -1049,7 +1085,7 @@ function displayHistory(records: DeploymentRecord[], envFilter?: string): void {
           "USER"
       )
     );
-    console.log(dim("    " + "─".repeat(95)));
+    console.log(dim("    " + "─".repeat(110)));
 
     for (const r of envRecords) {
       const d = new Date(r.timestamp);
@@ -1201,7 +1237,7 @@ function displayEnvsTable(envs: EnvironmentInfo[]): void {
         "INSTANCE URL"
       )
   );
-  console.log(dim("  " + "─".repeat(100)));
+  console.log(dim("  " + "─".repeat(120)));
 
   for (const env of envs) {
     const defaultTag = env.isDefault ? green(bold("  ★")) : "";
@@ -1233,6 +1269,94 @@ function displayEnvsTable(envs: EnvironmentInfo[]): void {
 async function handleListEnvs(configPath: string) {
   const envs = listEnvironments(configPath);
   displayEnvsTable(envs);
+}
+
+function displayStatusDashboard(statuses: RemoteEnvironmentStatus[]): void {
+  if (statuses.length === 0) {
+    console.log(yellow("\nNo environments configured to check.\n"));
+    return;
+  }
+
+  console.log(`\n${bold(cyan("📊 Live Remote Environment Status:"))}\n`);
+  console.log(
+    "  " +
+      dim(
+        pad("DEFAULT", 10) +
+        pad("ENV NAME", 16) +
+        pad("HEALTH", 16) +
+        pad("HTTP CODE", 16) +
+        pad("LATENCY", 12) +
+        pad("STORAGE ID", 14) +
+        pad("ENTITY KEY", 14) +
+        pad("ROUTE PATH", 20) +
+        "INSTANCE URL"
+      )
+  );
+  console.log(dim("  " + "─".repeat(150)));
+
+  for (const s of statuses) {
+    const defaultTag = s.isDefault ? green(bold("  ★")) : "";
+    const nameStr = s.isDefault ? bold(cyan(s.env)) : bold(s.env);
+
+    let healthBadge: string;
+    if (s.state === "ONLINE") {
+      healthBadge = green(bold("● ONLINE"));
+    } else if (s.state === "NOT_FOUND") {
+      healthBadge = yellow("○ NOT FOUND");
+    } else if (s.state === "PROTECTED") {
+      healthBadge = yellow("🔒 PROTECTED");
+    } else if (s.state === "OFFLINE") {
+      healthBadge = red("○ OFFLINE");
+    } else {
+      healthBadge = red("▲ ERROR");
+    }
+
+    const httpCodeStr =
+      s.httpStatus > 0
+        ? `${s.httpStatus} ${s.httpStatusText}`
+        : s.error
+        ? dim("Unreachable")
+        : dim("No resp");
+
+    const latencyStr = s.latencyMs > 0 ? `${s.latencyMs}ms` : "-";
+    const storageStr = s.storageId !== undefined ? cyan(String(s.storageId)) : dim("-");
+    const entityStr = s.entityKey !== undefined ? dim(String(s.entityKey)) : dim("-");
+    const routeStr = s.webAppPath || "/";
+    const instanceStr = s.instanceUrl || "-";
+
+    console.log(
+      "  " +
+        pad(defaultTag, 10) +
+        pad(nameStr, 16) +
+        pad(healthBadge, 16) +
+        pad(httpCodeStr, 16) +
+        pad(latencyStr, 12) +
+        pad(storageStr, 14) +
+        pad(entityStr, 14) +
+        pad(routeStr, 20) +
+        dim(instanceStr)
+    );
+  }
+  console.log("");
+}
+
+async function handleStatusDashboard(configPath: string, envFilter?: string, flags?: any) {
+  const spinner = new Spinner("Pinging remote instances and checking live status...", false);
+  spinner.start("Pinging remote instances and checking live status...");
+
+  try {
+    const statuses = await checkAllEnvironmentsStatus(
+      configPath,
+      envFilter,
+      process.cwd(),
+      flags?.user && flags?.password ? { username: flags.user, password: flags.password } : undefined
+    );
+    spinner.stop();
+    displayStatusDashboard(statuses);
+  } catch (err: any) {
+    spinner.stop();
+    log.error(`Status check failed: ${err.message}`);
+  }
 }
 
 async function handleRemoveEnv(configPath: string, envName?: string) {

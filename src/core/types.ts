@@ -170,4 +170,32 @@ export interface HealthCheckResult {
   error?: string;
 }
 
+/**
+ * Health state classification for remote environments
+ */
+export type RemoteHealthState =
+  | "ONLINE"
+  | "OFFLINE"
+  | "NOT_FOUND"
+  | "ERROR"
+  | "PROTECTED";
+
+/**
+ * Status report of a remote deployment environment
+ */
+export interface RemoteEnvironmentStatus {
+  env: string;
+  isDefault: boolean;
+  state: RemoteHealthState;
+  httpStatus: number;
+  httpStatusText: string;
+  latencyMs: number;
+  entityKey?: string | number;
+  storageId?: string | number;
+  webAppName: string;
+  webAppPath: string;
+  instanceUrl: string;
+  error?: string;
+}
+
 
