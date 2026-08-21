@@ -11,15 +11,13 @@ export interface EnvironmentConfig {
 }
 
 /**
- * Structure of config_web_app.json
- * Supports both multi-environment and legacy flat schema.
+ * Structure of kodall-webapp.config.json
+ * Multi-environment configuration schema.
  */
 export interface WebAppConfigFile {
   web_app_name?: string;
   web_app_path?: string;
-  instance?: string;
   dist_path?: string;
-  api_key?: string;
   default_env?: string;
   environments?: Record<string, EnvironmentConfig>;
 }

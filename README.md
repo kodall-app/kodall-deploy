@@ -10,7 +10,7 @@ A fast, modern CLI tool and TypeScript library to package, bundle, and deploy we
 2. [Installation](#installation)
 3. [Quick Start](#quick-start)
 4. [Framework Auto-Detection](#framework-auto-detection)
-5. [Configuration (`config_web_app.json`)](#configuration-config_web_appjson)
+5. [Configuration (`kodall-webapp.config.json`)](#configuration-kodall-webappconfigjson)
    - [Multi-Environment Configuration](#multi-environment-configuration)
    - [Configuration Fields Reference](#configuration-fields-reference)
    - [Resolution & Priority Order](#resolution--priority-order)
@@ -76,7 +76,7 @@ npx one-deploy [options]
 ## Quick Start
 
 ### 1. Initialize Configuration
-Run the interactive wizard to detect your framework and generate `config_web_app.json`:
+Run the interactive wizard to detect your framework and generate `kodall-webapp.config.json`:
 
 ```bash
 npx one-deploy --init
@@ -117,9 +117,12 @@ When running `--init`, `--add-env`, or custom deployments, `kodall-one-deploy` a
 ---
 [↑ back to top](#kodall-one-deploy)
 
-## Configuration (`config_web_app.json`)
+## Configuration (`kodall-webapp.config.json`)
 
-`kodall-one-deploy` reads settings from `config_web_app.json` in your project root (or a custom path passed via `--config <path>`).
+`kodall-one-deploy` reads settings from `kodall-webapp.config.json` in your project root (or a custom path passed via `--config <path>`).
+
+> [!NOTE]
+> **Automatic Migration**: When running `npx one-deploy`, any legacy `config_web_app.json` or flat single-instance configuration is automatically converted to the new multi-environment `kodall-webapp.config.json` format.
 
 ### Multi-Environment Configuration
 
@@ -156,12 +159,14 @@ Define common defaults at the top level and environment-specific overrides in th
 |---|---|---|---|
 | `web_app_name` | `string` | WebApp entity name in ONE Framework / Kodall. | Yes |
 | `web_app_path` | `string` | URL route where web app is served (auto-prefixed with `/`). | Yes |
-| `instance` | `string` | Base URL of ONE Framework instance (e.g. `https://app.domain.com`). | Yes |
 | `dist_path` | `string` | Local folder containing build assets. Must contain `index.html`. | Optional (default: `./dist`) |
-| `api_key` | `string` | API Key for authentication (bypasses username & password prompt). | Optional |
-| `type` | `string` | Category of environment: `"dev"`, `"staging"`, `"prod"`, `"test"`. | Optional |
 | `default_env` | `string` | Default environment name to use if `--env` is omitted. | Optional (default: `dev`) |
-| `environments` | `object` | Map of environment overrides (`dev`, `staging`, `prod`, etc.). | Optional |
+| `environments` | `object` | Map of environment definitions (`dev`, `staging`, `prod`, etc.). | Yes |
+| `environments[name].instance` | `string` | Base URL of ONE Framework instance (e.g. `https://app.domain.com`). | Yes |
+| `environments[name].type` | `string` | Category of environment: `"dev"`, `"staging"`, `"prod"`, `"test"`. | Optional |
+| `environments[name].api_key` | `string` | API Key for authentication (bypasses username & password prompt). | Optional |
+| `environments[name].web_app_path` | `string` | Environment-specific URL route override. | Optional |
+| `environments[name].dist_path` | `string` | Environment-specific build directory override. | Optional |
 
 ### Resolution & Priority Order
 
@@ -169,8 +174,8 @@ Parameters are resolved in the following strict order (highest priority first):
 
 1. **CLI Flags**: (`--instance`, `--name`, `--path`, `--dist`, `--user`, `--password`, `--api-key`, `--env`, `--type`, `--all`)
 2. **Environment Variables**: (`ONE_INSTANCE`, `ONE_APP_NAME`, `ONE_APP_PATH`, `ONE_DIST_PATH`, `ONE_USERNAME`, `ONE_PASSWORD`, `ONE_API_KEY`, `ONE_ENV`)
-3. **Environment Overrides**: Block in `config_web_app.json` under `environments[targetEnv]`
-4. **Top-Level Defaults**: Values in root of `config_web_app.json`
+3. **Environment Overrides**: Block in `kodall-webapp.config.json` under `environments[targetEnv]`
+4. **Top-Level Defaults**: Values in root of `kodall-webapp.config.json` (`web_app_name`, `web_app_path`, `dist_path`)
 5. **Interactive Wizard**: Prompted fallback for missing values (skipped when `--ci` is active)
 
 ---
@@ -196,10 +201,10 @@ OPTIONS:
   -u, --user <username>     ONE Framework login username
   -P, --password <password> ONE Framework login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
-  -c, --config <file>       Path to config file [default: config_web_app.json]
+  -c, --config <file>       Path to config file [default: kodall-webapp.config.json]
   -l, --list-envs           List all configured environments in a table
   -s, --status [env]        Display live status & health dashboard for environment(s)
-      --add-env [name]      Add or update an environment in config_web_app.json
+      --add-env [name]      Add or update an environment in kodall-webapp.config.json
       --remove-env [name]   Remove an environment from configuration
       --clone-env <src> [dst] Duplicate/clone an existing environment
       --set-default <name>  Set default deployment environment
@@ -211,7 +216,7 @@ OPTIONS:
       --init-ci             Generate CI/CD pipeline (GitHub Actions, GitLab CI, Bitbucket)
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
-      --init                Interactively generate or update config_web_app.json
+      --init                Interactively generate or update kodall-webapp.config.json
   -v, --version             Display CLI version
   -h, --help                Display help message
 ```
@@ -442,7 +447,7 @@ console.log(`Restored Storage ID: ${result.toStorageId}`);
 ```typescript
 import { listEnvironments } from "kodall-one-deploy";
 
-const envs = listEnvironments("config_web_app.json");
+const envs = listEnvironments("kodall-webapp.config.json");
 console.log(envs);
 ```
 
@@ -451,7 +456,7 @@ console.log(envs);
 ```typescript
 import { checkAllEnvironmentsStatus } from "kodall-one-deploy";
 
-const statuses = await checkAllEnvironmentsStatus("config_web_app.json");
+const statuses = await checkAllEnvironmentsStatus("kodall-webapp.config.json");
 console.log(statuses);
 ```
 

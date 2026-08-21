@@ -8,6 +8,7 @@ import {
   checkSingleEnvironmentStatus,
   classifyHealthState,
 } from "../src/core/status.js";
+import { DEFAULT_CONFIG_FILENAME } from "../src/core/config.js";
 
 describe("Live Remote Status Dashboard", () => {
   let server: http.Server;
@@ -57,7 +58,7 @@ describe("Live Remote Status Dashboard", () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kodall-status-test-"));
-    configPath = path.join(tempDir, "config_web_app.json");
+    configPath = path.join(tempDir, DEFAULT_CONFIG_FILENAME);
   });
 
   afterEach(() => {

@@ -16,8 +16,10 @@ export {
   findTargetEnvironments,
   loadConfigFile,
   saveConfigFile,
+  migrateLegacyConfigFile,
   validateDistDirectory,
   DEFAULT_CONFIG_FILENAME,
+  LEGACY_CONFIG_FILENAME,
 } from "./core/config.js";
 export { KodallNodeClient, type KodallNodeClientOptions } from "./client/kodall-node-client.js";
 export { CookieStore } from "./client/cookie-store.js";

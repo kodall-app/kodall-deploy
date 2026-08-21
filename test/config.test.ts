@@ -3,8 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_CONFIG_FILENAME,
   findTargetEnvironments,
+  LEGACY_CONFIG_FILENAME,
   loadConfigFile,
+  migrateLegacyConfigFile,
   resolveConfig,
   saveConfigFile,
   validateDistDirectory,
@@ -23,6 +26,11 @@ describe("Config Resolution & Validation", () => {
     } catch {}
   });
 
+  it("should have correct default and legacy config filenames", () => {
+    expect(DEFAULT_CONFIG_FILENAME).toBe("kodall-webapp.config.json");
+    expect(LEGACY_CONFIG_FILENAME).toBe("config_web_app.json");
+  });
+
   it("should handle missing config file gracefully", () => {
     const { fileExists, config } = loadConfigFile("nonexistent.json", tempDir);
     expect(fileExists).toBe(false);
@@ -34,20 +42,124 @@ describe("Config Resolution & Validation", () => {
     expect(() => loadConfigFile("broken.json", tempDir)).toThrow("Failed to parse config file");
   });
 
-  it("should load and save configuration file", () => {
+  it("should load and save configuration file in kodall-webapp.config.json", () => {
     const sampleConfig = {
       web_app_name: "test-app",
       web_app_path: "test-path",
-      instance: "https://test.domain.com",
       dist_path: "./dist",
+      default_env: "dev",
+      environments: {
+        dev: {
+          instance: "https://test.domain.com",
+        },
+      },
     };
 
-    saveConfigFile("config_web_app.json", sampleConfig, tempDir);
-    const { fileExists, config } = loadConfigFile("config_web_app.json", tempDir);
+    saveConfigFile(DEFAULT_CONFIG_FILENAME, sampleConfig, tempDir);
+    const { fileExists, config } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
 
     expect(fileExists).toBe(true);
     expect(config.web_app_name).toBe("test-app");
-    expect(config.instance).toBe("https://test.domain.com");
+    expect(config.environments?.dev?.instance).toBe("https://test.domain.com");
+  });
+
+  it("should migrate legacy flat config_web_app.json to kodall-webapp.config.json with environments", () => {
+    const legacyFlatConfig = {
+      web_app_name: "legacy-app",
+      web_app_path: "/legacy",
+      instance: "https://legacy.instance.com",
+      dist_path: "./dist",
+      api_key: "my-key-123",
+    };
+
+    fs.writeFileSync(
+      path.join(tempDir, LEGACY_CONFIG_FILENAME),
+      JSON.stringify(legacyFlatConfig, null, 2),
+      "utf-8"
+    );
+
+    const result = migrateLegacyConfigFile(tempDir);
+    expect(result.migrated).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, DEFAULT_CONFIG_FILENAME))).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, LEGACY_CONFIG_FILENAME))).toBe(false);
+
+    const { config } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
+    expect(config.web_app_name).toBe("legacy-app");
+    expect(config.web_app_path).toBe("/legacy");
+    expect(config.default_env).toBe("dev");
+    expect(config.environments?.dev?.instance).toBe("https://legacy.instance.com");
+    expect(config.environments?.dev?.api_key).toBe("my-key-123");
+
+    // Second call is a no-op
+    const noopResult = migrateLegacyConfigFile(tempDir);
+    expect(noopResult.migrated).toBe(false);
+  });
+
+  it("should migrate legacy multi-environment config_web_app.json to kodall-webapp.config.json", () => {
+    const legacyMultiConfig = {
+      web_app_name: "multi-app",
+      web_app_path: "/multi",
+      environments: {
+        staging: {
+          instance: "https://staging.kodall.ro",
+        },
+      },
+    };
+
+    fs.writeFileSync(
+      path.join(tempDir, LEGACY_CONFIG_FILENAME),
+      JSON.stringify(legacyMultiConfig, null, 2),
+      "utf-8"
+    );
+
+    const result = migrateLegacyConfigFile(tempDir);
+    expect(result.migrated).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, DEFAULT_CONFIG_FILENAME))).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, LEGACY_CONFIG_FILENAME))).toBe(false);
+
+    const { config } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
+    expect(config.web_app_name).toBe("multi-app");
+    expect(config.environments?.staging?.instance).toBe("https://staging.kodall.ro");
+  });
+
+  it("should clean up legacy file if new config already exists", () => {
+    fs.writeFileSync(
+      path.join(tempDir, DEFAULT_CONFIG_FILENAME),
+      JSON.stringify({ environments: { dev: { instance: "https://dev.ro" } } }),
+      "utf-8"
+    );
+    fs.writeFileSync(path.join(tempDir, LEGACY_CONFIG_FILENAME), "{}", "utf-8");
+
+    const result = migrateLegacyConfigFile(tempDir);
+    expect(result.migrated).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, LEGACY_CONFIG_FILENAME))).toBe(false);
+  });
+
+  it("should handle corrupted files during migration gracefully", () => {
+    fs.writeFileSync(path.join(tempDir, DEFAULT_CONFIG_FILENAME), "{ bad json }", "utf-8");
+    expect(migrateLegacyConfigFile(tempDir).migrated).toBe(false);
+
+    fs.unlinkSync(path.join(tempDir, DEFAULT_CONFIG_FILENAME));
+    fs.writeFileSync(path.join(tempDir, LEGACY_CONFIG_FILENAME), "{ bad json }", "utf-8");
+    expect(migrateLegacyConfigFile(tempDir).migrated).toBe(false);
+  });
+
+  it("should auto-migrate flat format inside kodall-webapp.config.json on load", () => {
+    const flatInNewFile = {
+      web_app_name: "flat-app",
+      web_app_path: "flat-path",
+      instance: "https://flat.kodall.ro",
+    };
+
+    fs.writeFileSync(
+      path.join(tempDir, DEFAULT_CONFIG_FILENAME),
+      JSON.stringify(flatInNewFile, null, 2),
+      "utf-8"
+    );
+
+    const { config } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
+    expect(config.environments?.dev?.instance).toBe("https://flat.kodall.ro");
+    expect(config.web_app_path).toBe("/flat-path");
   });
 
   it("should resolve multi-environment configuration with overrides", () => {
@@ -68,7 +180,7 @@ describe("Config Resolution & Validation", () => {
       },
     };
 
-    saveConfigFile("config_web_app.json", multiEnvConfig, tempDir);
+    saveConfigFile(DEFAULT_CONFIG_FILENAME, multiEnvConfig, tempDir);
 
     // Resolve default env (dev)
     const devRes = resolveConfig({}, tempDir);
@@ -92,9 +204,13 @@ describe("Config Resolution & Validation", () => {
     const config = {
       web_app_name: "base-name",
       web_app_path: "base-path",
-      instance: "https://base.instance.com",
+      environments: {
+        dev: {
+          instance: "https://base.instance.com",
+        },
+      },
     };
-    saveConfigFile("config_web_app.json", config, tempDir);
+    saveConfigFile(DEFAULT_CONFIG_FILENAME, config, tempDir);
 
     const result = resolveConfig(
       {

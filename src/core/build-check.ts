@@ -45,6 +45,7 @@ const IGNORED_FILES = new Set([
   "pnpm-lock.yaml",
   "yarn.lock",
   "bun.lockb",
+  "kodall-webapp.config.json",
   "config_web_app.json",
   ".one-deploy-history.json",
 ]);

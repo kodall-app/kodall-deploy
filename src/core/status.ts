@@ -113,7 +113,7 @@ export async function checkAllEnvironmentsStatus(
   // If any env config has an api_key in environments map, attach it
   const fullEnvs = envs.map((e) => {
     const rawData = config.environments?.[e.name];
-    const apiKey = rawData?.api_key || config.api_key;
+    const apiKey = rawData?.api_key;
     return {
       ...e,
       api_key: apiKey,

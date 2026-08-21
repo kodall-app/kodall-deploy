@@ -6,7 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deploy } from "../src/core/deployer.js";
-import { saveConfigFile } from "../src/core/config.js";
+import { DEFAULT_CONFIG_FILENAME, saveConfigFile } from "../src/core/config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -136,9 +136,8 @@ describe("Full Integration Test (Real HTTP Server + CLI)", () => {
     );
     fs.writeFileSync(path.join(distDir, "app.js"), "console.log('App loaded');");
 
-    // 3. Write multi-environment config_web_app.json
     saveConfigFile(
-      "config_web_app.json",
+      DEFAULT_CONFIG_FILENAME,
       {
         web_app_name: "sample-portal",
         web_app_path: "sample-portal",

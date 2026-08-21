@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG_FILENAME } from "../src/core/config.js";
 import {
   cloneEnvironment,
   listEnvironments,
@@ -15,7 +16,7 @@ describe("Environment Manager", () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kodall-env-test-"));
-    configPath = path.join(tempDir, "config_web_app.json");
+    configPath = path.join(tempDir, DEFAULT_CONFIG_FILENAME);
   });
 
   afterEach(() => {
@@ -60,7 +61,7 @@ describe("Environment Manager", () => {
     expect(prod?.hasApiKey).toBe(true);
   });
 
-  it("should handle custom environment type and legacy single config without environments object", () => {
+  it("should handle custom environment type", () => {
     // Custom env
     fs.writeFileSync(
       configPath,
@@ -73,22 +74,6 @@ describe("Environment Manager", () => {
     );
     const customList = listEnvironments(configPath, tempDir);
     expect(customList[0].type).toBe("custom");
-
-    // Legacy config (single instance)
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({
-        instance: "https://legacy.kodall.ro",
-        web_app_name: "legacy-app",
-        api_key: "legacy-key",
-      }),
-      "utf-8"
-    );
-    const legacyList = listEnvironments(configPath, tempDir);
-    expect(legacyList.length).toBe(1);
-    expect(legacyList[0].name).toBe("default");
-    expect(legacyList[0].instance).toBe("https://legacy.kodall.ro");
-    expect(legacyList[0].hasApiKey).toBe(true);
   });
 
   it("should handle empty or missing config file in listEnvironments", () => {

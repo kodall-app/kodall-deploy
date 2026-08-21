@@ -9,6 +9,7 @@ import {
   DEFAULT_CONFIG_FILENAME,
   findTargetEnvironments,
   loadConfigFile,
+  migrateLegacyConfigFile,
   resolveConfig,
   saveConfigFile,
 } from "./core/config.js";
@@ -57,10 +58,10 @@ ${bold("OPTIONS:")}
   -u, --user <username>     ONE Framework login username
   -P, --password <password> ONE Framework login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
-  -c, --config <file>       Path to config file [default: config_web_app.json]
+  -c, --config <file>       Path to config file [default: kodall-webapp.config.json]
   -l, --list-envs           List all configured environments in a table
   -s, --status [env]        Display live status & health dashboard for environment(s)
-      --add-env [name]      Add or update an environment in config_web_app.json
+      --add-env [name]      Add or update an environment in kodall-webapp.config.json
       --remove-env [name]   Remove an environment from configuration
       --clone-env <src> [dst] Duplicate/clone an existing environment
       --set-default <name>  Set default deployment environment
@@ -72,7 +73,7 @@ ${bold("OPTIONS:")}
       --init-ci             Generate CI/CD pipeline (GitHub Actions, GitLab CI, Bitbucket)
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
-      --init                Interactively generate or update config_web_app.json
+      --init                Interactively generate or update kodall-webapp.config.json
   -v, --version             Display CLI version
   -h, --help                Display this help message
 
@@ -301,6 +302,15 @@ async function main() {
   const isCi = flags.ci || flags["non-interactive"] || Boolean(process.env.CI);
   const configPath = flags.config || DEFAULT_CONFIG_FILENAME;
 
+  if (!flags.config) {
+    const migration = migrateLegacyConfigFile(process.cwd());
+    if (migration.migrated) {
+      log.info(
+        `Migrated legacy configuration to ${DEFAULT_CONFIG_FILENAME} (multi-environment format).`
+      );
+    }
+  }
+
   console.log(`\n${bold(cyan("▶"))} ${bold("ONE Framework / Kodall Deployer")} ${dim(`v${VERSION}`)}\n`);
 
   // Handle --list-envs command
@@ -492,7 +502,7 @@ async function main() {
             apiKey: customApiKey || undefined,
           };
 
-          const saveAsEnv = await askConfirm("Save this as a new environment in config_web_app.json?", false);
+          const saveAsEnv = await askConfirm(`Save this as a new environment in ${configPath}?`, false);
           if (saveAsEnv) {
             const typeChoices = ["dev", "staging", "prod", "test", "custom"];
             const newEnvName = await askText("New environment name (e.g. uat, client-a, prod-eu)");
@@ -548,7 +558,7 @@ async function main() {
     if (!isCi && !flags["api-key"]) {
       const needsAuth = matchedTargets.some((t) => {
         const envConf = loadedConfig.environments?.[t];
-        return !envConf?.api_key && !loadedConfig.api_key;
+        return !envConf?.api_key;
       });
 
       if (needsAuth && (!batchUser || !batchPass)) {
@@ -690,8 +700,14 @@ async function main() {
         const newConfigFile: WebAppConfigFile = {
           web_app_name: deployOpts.webAppName || configState.resolved.web_app_name,
           web_app_path: deployOpts.webAppPath || configState.resolved.web_app_path,
-          instance: deployOpts.instance || configState.resolved.instance,
           dist_path: deployOpts.distPath || configState.resolved.dist_path,
+          default_env: "dev",
+          environments: {
+            dev: {
+              type: "dev",
+              instance: (deployOpts.instance || configState.resolved.instance)!,
+            },
+          },
         };
         saveConfigFile(configPath, newConfigFile);
         log.success(`Configuration saved to ${configPath}`);
@@ -815,9 +831,15 @@ async function handleInit(configPath: string) {
     const cfg: WebAppConfigFile = {
       web_app_name: webAppName,
       web_app_path: webAppPath,
-      instance,
       dist_path: distPath,
-      ...(apiKey ? { api_key: apiKey } : {}),
+      default_env: "dev",
+      environments: {
+        dev: {
+          type: "dev",
+          instance,
+          ...(apiKey ? { api_key: apiKey } : {}),
+        },
+      },
     };
 
     saveConfigFile(configPath, cfg);
@@ -1194,7 +1216,7 @@ async function handleRollback(
   let user = flags.user;
   let pass = flags.password;
 
-  const envConf = targetEnv && loadedConfig.environments ? loadedConfig.environments[targetEnv] : loadedConfig;
+  const envConf = targetEnv && loadedConfig.environments ? loadedConfig.environments[targetEnv] : undefined;
   if (!flags["api-key"] && !envConf?.api_key) {
     if (!user) user = await askText("ONE Username", process.env.USER || process.env.USERNAME);
     if (!pass) pass = await askPassword("ONE Password");
@@ -1585,7 +1607,11 @@ async function handleInitCI(configPath: string) {
   console.log(bold(cyan("🔑 Required CI/CD Repository Secrets:")));
   console.log(dim("  Configure these environment variables / secrets in your repository settings:"));
   console.log(`    ${cyan("▸")} ${bold("ONE_API_KEY")}:   Your ONE Framework / Kodall API authentication key`);
-  console.log(`    ${cyan("▸")} ${bold("ONE_INSTANCE")}: Base instance URL (e.g. ${config.instance || "https://instance.kodall.ro"})`);
+  const sampleInstance =
+    (config.default_env && config.environments?.[config.default_env]?.instance) ||
+    (config.environments && Object.values(config.environments)[0]?.instance) ||
+    "https://instance.kodall.ro";
+  console.log(`    ${cyan("▸")} ${bold("ONE_INSTANCE")}: Base instance URL (e.g. ${sampleInstance})`);
   console.log("");
 }
 

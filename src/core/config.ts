@@ -2,7 +2,124 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DeployOptions, EnvironmentConfig, ResolvedConfig, WebAppConfigFile } from "./types.js";
 
-export const DEFAULT_CONFIG_FILENAME = "config_web_app.json";
+export const DEFAULT_CONFIG_FILENAME = "kodall-webapp.config.json";
+export const LEGACY_CONFIG_FILENAME = "config_web_app.json";
+
+/**
+ * Migrates legacy config_web_app.json or flat single-instance objects to the new multi-environment format
+ */
+export function migrateLegacyConfigFile(
+  cwd = process.cwd()
+): { migrated: boolean; oldPath?: string; newPath?: string } {
+  const defaultPath = path.join(cwd, DEFAULT_CONFIG_FILENAME);
+  const legacyPath = path.join(cwd, LEGACY_CONFIG_FILENAME);
+
+  // 1. Check if kodall-webapp.config.json exists
+  if (fs.existsSync(defaultPath)) {
+    try {
+      const raw = fs.readFileSync(defaultPath, "utf-8");
+      const parsed = JSON.parse(raw);
+
+      // Check if it's a flat legacy format with instance at root
+      if (parsed.instance && (!parsed.environments || Object.keys(parsed.environments).length === 0)) {
+        const migrated: WebAppConfigFile = {
+          web_app_name: parsed.web_app_name || "app",
+          web_app_path:
+            parsed.web_app_path
+              ? parsed.web_app_path.startsWith("/")
+                ? parsed.web_app_path
+                : `/${parsed.web_app_path}`
+              : parsed.web_app_name
+              ? parsed.web_app_name.startsWith("/")
+                ? parsed.web_app_name
+                : `/${parsed.web_app_name}`
+              : "/app",
+          dist_path: parsed.dist_path || "./dist",
+          default_env: "dev",
+          environments: {
+            dev: {
+              type: "dev",
+              instance: parsed.instance,
+              ...(parsed.api_key ? { api_key: parsed.api_key } : {}),
+            },
+          },
+        };
+        fs.writeFileSync(defaultPath, JSON.stringify(migrated, null, 2) + "\n", "utf-8");
+
+        if (fs.existsSync(legacyPath)) {
+          try {
+            fs.unlinkSync(legacyPath);
+          } catch {}
+        }
+
+        return { migrated: true, newPath: defaultPath };
+      }
+
+      // Already has environments. If old config_web_app.json also exists, remove it
+      if (fs.existsSync(legacyPath)) {
+        try {
+          fs.unlinkSync(legacyPath);
+        } catch {}
+      }
+
+      return { migrated: false };
+    } catch {
+      return { migrated: false };
+    }
+  }
+
+  // 2. kodall-webapp.config.json doesn't exist, but legacy config_web_app.json does
+  if (fs.existsSync(legacyPath)) {
+    try {
+      const raw = fs.readFileSync(legacyPath, "utf-8");
+      const parsed = JSON.parse(raw);
+
+      let migrated: WebAppConfigFile;
+
+      if (parsed.environments && Object.keys(parsed.environments).length > 0) {
+        migrated = {
+          web_app_name: parsed.web_app_name,
+          web_app_path: parsed.web_app_path,
+          dist_path: parsed.dist_path,
+          default_env: parsed.default_env || Object.keys(parsed.environments)[0],
+          environments: parsed.environments,
+        };
+      } else {
+        migrated = {
+          web_app_name: parsed.web_app_name || "app",
+          web_app_path:
+            parsed.web_app_path ||
+            (parsed.web_app_name
+              ? parsed.web_app_name.startsWith("/")
+                ? parsed.web_app_name
+                : `/${parsed.web_app_name}`
+              : "/app"),
+          dist_path: parsed.dist_path || "./dist",
+          default_env: "dev",
+          environments: {
+            dev: {
+              type: "dev",
+              instance: parsed.instance || "",
+              ...(parsed.api_key ? { api_key: parsed.api_key } : {}),
+            },
+          },
+        };
+      }
+
+      fs.writeFileSync(defaultPath, JSON.stringify(migrated, null, 2) + "\n", "utf-8");
+
+      try {
+        fs.unlinkSync(legacyPath);
+      } catch {}
+
+      return { migrated: true, oldPath: legacyPath, newPath: defaultPath };
+    } catch {
+      return { migrated: false };
+    }
+  }
+
+  return { migrated: false };
+}
 
 /**
  * Load and parse config file if present
@@ -11,9 +128,18 @@ export function loadConfigFile(
   configPath = DEFAULT_CONFIG_FILENAME,
   cwd = process.cwd()
 ): { fileExists: boolean; config: WebAppConfigFile } {
-  const resolvedPath = path.isAbsolute(configPath)
+  let resolvedPath = path.isAbsolute(configPath)
     ? configPath
     : path.join(cwd, configPath);
+
+  // Auto-migrate if loading default config and legacy file exists
+  if (
+    configPath === DEFAULT_CONFIG_FILENAME &&
+    !fs.existsSync(resolvedPath) &&
+    fs.existsSync(path.join(cwd, LEGACY_CONFIG_FILENAME))
+  ) {
+    migrateLegacyConfigFile(cwd);
+  }
 
   if (!fs.existsSync(resolvedPath)) {
     return { fileExists: false, config: {} };
@@ -22,6 +148,35 @@ export function loadConfigFile(
   try {
     const rawContent = fs.readFileSync(resolvedPath, "utf-8");
     const parsed = JSON.parse(rawContent);
+
+    // If loaded file is flat legacy, auto-migrate it
+    if (parsed.instance && (!parsed.environments || Object.keys(parsed.environments).length === 0)) {
+      const migrated: WebAppConfigFile = {
+        web_app_name: parsed.web_app_name || "app",
+        web_app_path:
+          parsed.web_app_path
+            ? parsed.web_app_path.startsWith("/")
+              ? parsed.web_app_path
+              : `/${parsed.web_app_path}`
+            : parsed.web_app_name
+            ? parsed.web_app_name.startsWith("/")
+              ? parsed.web_app_name
+              : `/${parsed.web_app_name}`
+            : "/app",
+        dist_path: parsed.dist_path || "./dist",
+        default_env: "dev",
+        environments: {
+          dev: {
+            type: "dev",
+            instance: parsed.instance,
+            ...(parsed.api_key ? { api_key: parsed.api_key } : {}),
+          },
+        },
+      };
+      fs.writeFileSync(resolvedPath, JSON.stringify(migrated, null, 2) + "\n", "utf-8");
+      return { fileExists: true, config: migrated };
+    }
+
     return { fileExists: true, config: parsed };
   } catch (error) {
     throw new Error(
@@ -103,7 +258,8 @@ export function resolveConfig(
   targetEnv?: string;
   hasConfigFile: boolean;
 } {
-  const { fileExists, config } = loadConfigFile(options.configPath, cwd);
+  const configPath = options.configPath || DEFAULT_CONFIG_FILENAME;
+  const { fileExists, config } = loadConfigFile(configPath, cwd);
 
   const availableEnvs = config.environments
     ? Object.keys(config.environments)
@@ -124,12 +280,12 @@ export function resolveConfig(
 
   // Merge values according to precedence:
   // CLI flags > Environment Variables > Config Environment Overrides > Config Top-level Defaults
+  // Instance and api_key must come from flags, env vars, or environment block (NOT root config)
   const instance =
     options.instance ||
     process.env.ONE_INSTANCE ||
     process.env.KODALL_INSTANCE ||
-    envOverrides.instance ||
-    config.instance;
+    envOverrides.instance;
 
   const web_app_name =
     options.webAppName ||
@@ -165,8 +321,7 @@ export function resolveConfig(
     options.apiKey ||
     process.env.ONE_API_KEY ||
     process.env.KODALL_API_KEY ||
-    envOverrides.api_key ||
-    config.api_key;
+    envOverrides.api_key;
 
   const username =
     options.username ||

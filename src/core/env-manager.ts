@@ -39,11 +39,11 @@ export function listEnvironments(
           ? "dev"
           : "custom");
 
-      const instance = envData.instance || config.instance || "";
+      const instance = envData.instance || "";
       const webAppName = envData.web_app_name || globalName;
       const webAppPath = envData.web_app_path || globalPath;
       const distPath = envData.dist_path || globalDist;
-      const hasApiKey = Boolean(envData.api_key || config.api_key);
+      const hasApiKey = Boolean(envData.api_key);
       const isDefault = name === defaultEnv;
 
       result.push({
@@ -57,18 +57,6 @@ export function listEnvironments(
         hasApiKey,
       });
     }
-  } else if (config.instance) {
-    // Legacy single environment
-    result.push({
-      name: "default",
-      isDefault: true,
-      type: "custom",
-      instance: config.instance,
-      webAppName: globalName,
-      webAppPath: globalPath,
-      distPath: globalDist,
-      hasApiKey: Boolean(config.api_key),
-    });
   }
 
   return result;
