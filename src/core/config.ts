@@ -323,6 +323,13 @@ export function resolveConfig(
     process.env.KODALL_API_KEY ||
     envOverrides.api_key;
 
+  const token =
+    options.token ||
+    process.env.ONE_TOKEN ||
+    process.env.KODALL_TOKEN ||
+    process.env.ONE_OIDC_TOKEN ||
+    envOverrides.token;
+
   const username =
     options.username ||
     process.env.ONE_USERNAME ||
@@ -335,12 +342,27 @@ export function resolveConfig(
     process.env.ONE_PASSWORD ||
     process.env.KODALL_PASSWORD;
 
+  const otp =
+    options.otp ||
+    process.env.ONE_OTP ||
+    process.env.KODALL_OTP ||
+    envOverrides.otp;
+
+  const client_id =
+    options.clientId ||
+    process.env.ONE_CLIENT_ID ||
+    process.env.KODALL_CLIENT_ID ||
+    envOverrides.client_id;
+
   const resolved: Partial<ResolvedConfig> = {
     instance,
     web_app_name,
     web_app_path,
     dist_path,
     api_key,
+    token,
+    otp,
+    client_id,
     username,
     password,
     env: targetEnv,
@@ -352,8 +374,8 @@ export function resolveConfig(
   if (!web_app_path) missing.push("web_app_path");
   if (!dist_path) missing.push("dist_path");
 
-  // If no apiKey, credentials are required for auth
-  if (!api_key) {
+  // If no apiKey or token, username/password credentials are required for auth
+  if (!api_key && !token) {
     if (!username) missing.push("username");
     if (!password) missing.push("password");
   }

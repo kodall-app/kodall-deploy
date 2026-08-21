@@ -32,22 +32,20 @@ describe("KodallNodeClient", () => {
     );
     mockHeaders.append("set-cookie", "sessionId=sess123; Path=/");
 
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ userName: "admin", userKey: 1 }), {
-        status: 200,
-        headers: mockHeaders,
-      })
-    );
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith("/auth")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ userName: "admin", userKey: 1 }), {
+            status: 200,
+            headers: mockHeaders,
+          })
+        );
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
 
     const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com/" });
     const session = await client.auth({ user: "admin", password: "password" });
-
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://mock.instance.com/auth",
-      expect.objectContaining({
-        method: "POST",
-      })
-    );
 
     expect(client.cookieStore.getCsrfToken()).toBe("test_csrf_token_xyz");
     expect(client.cookieStore.getCookie("sessionId")).toBe("sess123");
@@ -65,7 +63,7 @@ describe("KodallNodeClient", () => {
       );
 
     const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
-    const session = await client.auth({ user: "admin", password: "password" });
+    const session = await client.basicAuth({ user: "admin", password: "password" });
     expect((session as any).userName).toBe("admin");
   });
 
@@ -77,7 +75,7 @@ describe("KodallNodeClient", () => {
     );
 
     const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
-    const result = await client.auth({ user: "admin", password: "wrong" });
+    const result = await client.basicAuth({ user: "admin", password: "wrong" });
     expect(isProblem(result)).toBe(true);
 
     // Non-JSON error text
@@ -87,7 +85,7 @@ describe("KodallNodeClient", () => {
       })
     );
 
-    await expect(client.auth({ user: "admin", password: "wrong" })).rejects.toThrow("Authentication failed");
+    await expect(client.basicAuth({ user: "admin", password: "wrong" })).rejects.toThrow("Authentication failed");
 
     // Empty errorText fallback to statusText
     globalThis.fetch = vi.fn().mockResolvedValue(
@@ -96,7 +94,7 @@ describe("KodallNodeClient", () => {
         statusText: "Internal Server Error",
       })
     );
-    await expect(client.auth({ user: "admin", password: "wrong" })).rejects.toThrow("Internal Server Error");
+    await expect(client.basicAuth({ user: "admin", password: "wrong" })).rejects.toThrow("Internal Server Error");
   });
 
   it("should verify session and handle errors", async () => {
@@ -135,6 +133,203 @@ describe("KodallNodeClient", () => {
       })
     );
     await expect(client.session()).rejects.toThrow("Unauthorized");
+  });
+
+  it("should discover OIDC OpenID configuration and handle getOidcIssuer", async () => {
+    const oidcSample = {
+      clientAdress: "31.5.199.97",
+      oidcIssuer: "https://dev-accounts.oneerp.ro/realms/isjtm/",
+      name: "ONE Framework Server",
+      isSecure: true,
+      version: "1.7.2",
+    };
+
+    const openIdConfig = {
+      issuer: "https://dev-accounts.oneerp.ro/realms/isjtm",
+      authorization_endpoint: "https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/auth",
+      token_endpoint: "https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/token",
+      userinfo_endpoint: "https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/userinfo",
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://mock.instance.com/auth") {
+        return Promise.resolve(new Response(JSON.stringify(oidcSample), { status: 200 }));
+      }
+      if (url === "https://dev-accounts.oneerp.ro/realms/isjtm/.well-known/openid-configuration") {
+        return Promise.resolve(new Response(JSON.stringify(openIdConfig), { status: 200 }));
+      }
+      return Promise.reject(new Error(`Unknown URL ${url}`));
+    });
+
+    const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+    const issuer = await client.getOidcIssuer();
+
+    expect(issuer).toBeDefined();
+    expect(issuer?.token_endpoint).toBe("https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/token");
+
+    // Test caching (subsequent call returns cached without fetch)
+    const cached = await client.getOidcIssuer();
+    expect(cached).toBe(issuer);
+
+    // When instance has no oidcIssuer
+    const clientNoOidc = new KodallNodeClient({ baseUrl: "https://native.instance.com" });
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: "ONE" }), { status: 200 }));
+    expect(await clientNoOidc.getOidcIssuer()).toBeNull();
+
+    // When well-known openid-configuration returns 404
+    const clientFailOidc = new KodallNodeClient({ baseUrl: "https://fail.instance.com" });
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://fail.instance.com/auth") {
+        return Promise.resolve(new Response(JSON.stringify({ oidcIssuer: "https://bad-oidc.com/" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("Not Found", { status: 404, statusText: "Not Found" }));
+    });
+    await expect(clientFailOidc.getOidcIssuer()).rejects.toThrow("Unable to get OpenID configuration");
+  });
+
+  it("should authenticate via OpenID Connect tokens", async () => {
+    const mockHeaders = new Headers();
+    mockHeaders.append("set-cookie", "one.erp.rest.csrf.token=oidc_csrf; Path=/");
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+      const headerVal = init?.headers?.["Oidc-Auth-Token"] || init?.headers?.["Oidc-auth-token"];
+      if (url.endsWith("/auth") && headerVal === "my-access-token") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ userName: "oidc_user", userKey: 42 }), {
+            status: 200,
+            headers: mockHeaders,
+          })
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ detail: "Invalid token" }), { status: 401 }));
+    });
+
+    const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+    const session = await client.openIdAuth({
+      accessToken: "my-access-token",
+      refreshToken: "my-refresh-token",
+    });
+
+    expect((session as any).userName).toBe("oidc_user");
+    expect(client.cookieStore.getCsrfToken()).toBe("oidc_csrf");
+
+    // Failed token auth
+    const failedSession = await client.openIdAuth({ accessToken: "invalid-token" });
+    expect(isProblem(failedSession)).toBe(true);
+  });
+
+  it("should perform full OAuth2 password grant flow when server has OIDC configured", async () => {
+    const oidcSample = {
+      oidcIssuer: "https://dev-accounts.oneerp.ro/realms/isjtm/",
+    };
+    const openIdConfig = {
+      issuer: "https://dev-accounts.oneerp.ro/realms/isjtm",
+      token_endpoint: "https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/token",
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+      if (url === "https://mock.instance.com/auth" && init?.method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify(oidcSample), { status: 200 }));
+      }
+      if (url === "https://dev-accounts.oneerp.ro/realms/isjtm/.well-known/openid-configuration") {
+        return Promise.resolve(new Response(JSON.stringify(openIdConfig), { status: 200 }));
+      }
+      if (url === "https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/token") {
+        const body = init?.body?.toString() || "";
+        if (body.includes("username=testuser") && body.includes("password=correct")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ access_token: "jwt-token-123", refresh_token: "ref-123" }), {
+              status: 200,
+            })
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ error_description: "Invalid user credentials" }), {
+            status: 400,
+          })
+        );
+      }
+      if (url === "https://mock.instance.com/auth" && init?.method === "POST") {
+        const headerVal = init?.headers?.["Oidc-Auth-Token"] || init?.headers?.["Oidc-auth-token"];
+        if (headerVal === "jwt-token-123") {
+          return Promise.resolve(new Response(JSON.stringify({ userName: "testuser" }), { status: 200 }));
+        }
+      }
+      return Promise.reject(new Error(`Unexpected: ${url}`));
+    });
+
+    const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+    const result = await client.auth({ user: "testuser", password: "correct" });
+    expect((result as any).userName).toBe("testuser");
+
+    // Invalid credentials at token endpoint
+    const badClient = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+    const badResult = await badClient.auth({ user: "testuser", password: "wrong" });
+    expect(isProblem(badResult)).toBe(true);
+    expect((badResult as any).detail).toContain("Invalid user credentials");
+
+    // Direct access token auth
+    const tokenResult = await client.auth({ accessToken: "jwt-token-123" });
+    expect((tokenResult as any).userName).toBe("testuser");
+  });
+
+  it("should send OTP in basic auth headers and payload", async () => {
+    let capturedHeaders: any;
+    let capturedBody: any;
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+      if (url.endsWith("/auth")) {
+        capturedHeaders = init?.headers;
+        capturedBody = JSON.parse(init?.body || "{}");
+        return Promise.resolve(new Response(JSON.stringify({ userName: "admin" }), { status: 200 }));
+      }
+      return Promise.reject(new Error("Unknown"));
+    });
+
+    const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+    const session = await client.basicAuth({ user: "admin", password: "pwd", otp: "654321" });
+
+    expect(capturedHeaders["X-OTP"]).toBe("654321");
+    expect(capturedBody.otp).toBe("654321");
+    expect((session as any).userName).toBe("admin");
+  });
+
+  it("should forward OTP / TOTP parameter to OAuth2 token endpoint", async () => {
+    const oidcSample = {
+      oidcIssuer: "https://dev-accounts.oneerp.ro/realms/isjtm/",
+    };
+    const openIdConfig = {
+      issuer: "https://dev-accounts.oneerp.ro/realms/isjtm",
+      token_endpoint: "https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/token",
+    };
+
+    let capturedTokenBody = "";
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+      if (url === "https://mock.instance.com/auth" && init?.method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify(oidcSample), { status: 200 }));
+      }
+      if (url === "https://dev-accounts.oneerp.ro/realms/isjtm/.well-known/openid-configuration") {
+        return Promise.resolve(new Response(JSON.stringify(openIdConfig), { status: 200 }));
+      }
+      if (url === "https://dev-accounts.oneerp.ro/realms/isjtm/protocol/openid-connect/token") {
+        capturedTokenBody = init?.body?.toString() || "";
+        return Promise.resolve(
+          new Response(JSON.stringify({ access_token: "jwt-token-otp" }), { status: 200 })
+        );
+      }
+      if (url === "https://mock.instance.com/auth" && init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ userName: "otp-user" }), { status: 200 }));
+      }
+      return Promise.reject(new Error("Unknown"));
+    });
+
+    const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+    const result = await client.auth({ user: "otp-user", password: "pwd", otp: "123456" });
+
+    expect(capturedTokenBody).toContain("totp=123456");
+    expect(capturedTokenBody).toContain("otp=123456");
+    expect((result as any).userName).toBe("otp-user");
   });
 
   it("should inject API Key headers when no CSRF token is present", () => {

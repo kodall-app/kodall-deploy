@@ -201,6 +201,7 @@ OPTIONS:
   -u, --user <username>     ONE Framework login username
   -P, --password <password> ONE Framework login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
+      --token <token>       OAuth / OpenID Connect access token (bypasses username/password)
   -c, --config <file>       Path to config file [default: kodall-webapp.config.json]
   -l, --list-envs           List all configured environments in a table
   -s, --status [env]        Display live status & health dashboard for environment(s)
@@ -233,6 +234,7 @@ OPTIONS:
 | `ONE_USERNAME` / `ONE_USER` | Login username |
 | `ONE_PASSWORD` | Login password |
 | `ONE_API_KEY` / `KODALL_API_KEY` | API Key |
+| `ONE_TOKEN` / `KODALL_TOKEN` | OAuth / OpenID Connect Access Token |
 
 ### Common CLI Examples
 

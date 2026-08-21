@@ -1,6 +1,10 @@
 import { CookieStore } from "./cookie-store.js";
+import { DEFAULT_OAUTH_PORT, executeBrowserOAuthLogin } from "./pkce-auth.js";
 import {
+  AuthCredential,
   Entity,
+  OidcTokens,
+  OpenIdProvider,
   Operation,
   Problem,
   Session,
@@ -21,6 +25,7 @@ export class KodallNodeClient {
   public readonly baseUrl: string;
   public readonly apiKey?: string;
   public readonly cookieStore: CookieStore;
+  private oidcIssuerConfig: OpenIdProvider | null | undefined = undefined;
 
   constructor(options: KodallNodeClientOptions) {
     let url = (options.baseUrl || "").trim();
@@ -59,32 +64,110 @@ export class KodallNodeClient {
   }
 
   /**
-   * Authenticate with username and password
+   * Discovers OpenID Connect / OAuth provider information if server is configured with OIDC
    */
-  public async auth(credential: UserPassword): Promise<Session | Problem> {
+  public async getOidcIssuer(): Promise<OpenIdProvider | null> {
+    if (this.oidcIssuerConfig !== undefined) {
+      return this.oidcIssuerConfig;
+    }
+
+    const sessionRes = await this.session();
+    if (isProblem(sessionRes) || !sessionRes.oidcIssuer || !sessionRes.oidcIssuer.trim()) {
+      this.oidcIssuerConfig = null;
+      return null;
+    }
+
+    const issuerUrl = sessionRes.oidcIssuer.endsWith("/")
+      ? sessionRes.oidcIssuer
+      : `${sessionRes.oidcIssuer}/`;
+    const wellKnownUrl = `${issuerUrl}.well-known/openid-configuration`;
+
+    const wellKnownRes = await fetch(wellKnownUrl, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!wellKnownRes.ok) {
+      throw new Error(
+        `Unable to get OpenID configuration from ${wellKnownUrl} (${wellKnownRes.status}: ${wellKnownRes.statusText})`
+      );
+    }
+
+    this.oidcIssuerConfig = (await wellKnownRes.json()) as OpenIdProvider;
+    return this.oidcIssuerConfig;
+  }
+
+  /**
+   * Authenticate with OpenID Connect / OAuth access token
+   */
+  public async openIdAuth(tokens: OidcTokens): Promise<Session | Problem> {
+    const url = `${this.baseUrl}/auth`;
+    const headers: Record<string, string> = {
+      Accept: "application/json, */*",
+      "Oidc-Auth-Token": tokens.accessToken,
+    };
+    if (tokens.refreshToken) {
+      headers["Oidc-Refresh-Token"] = tokens.refreshToken;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+    });
+
+    this.cookieStore.setFromResponse(response);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      try {
+        return JSON.parse(errorText) as Problem;
+      } catch {
+        throw new Error(
+          `OpenID authentication failed with status ${response.status}: ${errorText || response.statusText}`
+        );
+      }
+    }
+
+    return (await response.json()) as Session | Problem;
+  }
+
+  /**
+   * Standard Basic Auth with username and password
+   */
+  public async basicAuth(credential: UserPassword): Promise<Session | Problem> {
     const url = `${this.baseUrl}/auth`;
 
-    // Try JSON auth first (standard Kodall), fallback to form urlencoded if needed
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json, */*",
+    };
+    if (credential.otp) {
+      headers["X-OTP"] = credential.otp;
+      headers["Otp"] = credential.otp;
+    }
+
     let response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, */*",
-      },
+      headers,
       body: JSON.stringify(credential),
     });
 
     if (response.status === 400 || response.status === 415) {
-      // Fallback for legacy ONE Framework instances expecting form-urlencoded
-      const formBody = new URLSearchParams({
+      const formParams: Record<string, string> = {
         user: credential.user,
         password: credential.password,
-      });
+      };
+      if (credential.otp) {
+        formParams.otp = credential.otp;
+        formParams.totp = credential.otp;
+      }
+      const formBody = new URLSearchParams(formParams);
       response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json, */*",
+          ...(credential.otp ? { "X-OTP": credential.otp } : {}),
         },
         body: formBody.toString(),
       });
@@ -95,8 +178,7 @@ export class KodallNodeClient {
     if (!response.ok) {
       const errorText = await response.text();
       try {
-        const errorJson = JSON.parse(errorText);
-        return errorJson as Problem;
+        return JSON.parse(errorText) as Problem;
       } catch {
         throw new Error(
           `Authentication failed with status ${response.status}: ${errorText || response.statusText}`
@@ -104,8 +186,143 @@ export class KodallNodeClient {
       }
     }
 
-    const data = (await response.json()) as Session | Problem;
-    return data;
+    return (await response.json()) as Session | Problem;
+  }
+
+  /**
+   * Universal authenticate method:
+   * Inspects server /auth first. If OAuth/OIDC is configured on server, uses OIDC flow;
+   * otherwise uses Basic username/password. Also accepts direct OidcTokens and OTP codes.
+   */
+  public async auth(
+    credential: AuthCredential,
+    options?: { clientId?: string; otp?: string }
+  ): Promise<Session | Problem> {
+    if ("accessToken" in credential) {
+      return this.openIdAuth(credential);
+    }
+
+    if ("user" in credential && "password" in credential) {
+      let oidcProvider: OpenIdProvider | null = null;
+      try {
+        oidcProvider = await this.getOidcIssuer();
+      } catch {
+        // Fallback to basic auth if OIDC check fails
+      }
+
+      if (oidcProvider && oidcProvider.token_endpoint) {
+        const candidateClientIds = [
+          options?.clientId,
+          "admin-cli",
+          "account",
+          "account-console",
+          "one-web",
+        ].filter(Boolean) as string[];
+
+        let lastErrorDetail = `OAuth authentication failed at ${oidcProvider.issuer}`;
+
+        for (const clientId of candidateClientIds) {
+          const tokenParams: Record<string, string> = {
+            grant_type: "password",
+            username: credential.user,
+            password: credential.password,
+            client_id: clientId,
+          };
+
+          const otpCode = credential.otp || options?.otp;
+          if (otpCode) {
+            tokenParams.totp = otpCode;
+            tokenParams.otp = otpCode;
+          }
+
+          const tokenBody = new URLSearchParams(tokenParams);
+
+          const tokenRes = await fetch(oidcProvider.token_endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Accept: "application/json",
+            },
+            body: tokenBody.toString(),
+          });
+
+          if (tokenRes.ok) {
+            const tokenData = (await tokenRes.json()) as {
+              access_token: string;
+              refresh_token?: string;
+            };
+
+            return this.openIdAuth({
+              accessToken: tokenData.access_token,
+              refreshToken: tokenData.refresh_token,
+            });
+          }
+
+          const errText = await tokenRes.text();
+          let errJson: any;
+          try {
+            errJson = JSON.parse(errText);
+          } catch {}
+
+          const errorName = errJson?.error;
+          const errorDesc = errJson?.error_description || errorName || `Status ${tokenRes.status}`;
+
+          // If client_id is invalid, try next candidate client
+          if (
+            errorName === "invalid_client" ||
+            errorName === "unauthorized_client" ||
+            errorDesc.toLowerCase().includes("invalid client")
+          ) {
+            lastErrorDetail = errorDesc;
+            continue;
+          }
+
+          // If error is invalid_grant (wrong password / wrong user / OTP required), return immediately
+          return {
+            detail: errorDesc,
+          };
+        }
+
+        return {
+          detail: lastErrorDetail,
+        };
+      }
+
+      return this.basicAuth(credential);
+    }
+
+    throw new Error("No authentication method configured");
+  }
+
+  /**
+   * Interactive Browser Login via OAuth 2.0 PKCE.
+   * Discovers OIDC issuer, starts local callback server,
+   * opens browser, and receives authorization code & access token.
+   */
+  public async loginWithBrowser(options?: {
+    clientId?: string;
+    port?: number;
+    scopes?: string;
+    timeoutMs?: number;
+    openBrowser?: boolean;
+    onAuthUrl?: (url: string) => void;
+  }): Promise<Session | Problem> {
+    const oidcProvider = await this.getOidcIssuer();
+    if (!oidcProvider || !oidcProvider.authorization_endpoint || !oidcProvider.token_endpoint) {
+      throw new Error("Target instance does not have OAuth / OpenID Connect configured");
+    }
+
+    const tokens = await executeBrowserOAuthLogin({
+      oidcProvider,
+      clientId: options?.clientId || "account",
+      port: options?.port || DEFAULT_OAUTH_PORT,
+      scopes: options?.scopes || "openid profile email",
+      timeoutMs: options?.timeoutMs || 120000,
+      openBrowser: options?.openBrowser ?? true,
+      onAuthUrl: options?.onAuthUrl,
+    });
+
+    return this.openIdAuth(tokens);
   }
 
   /**

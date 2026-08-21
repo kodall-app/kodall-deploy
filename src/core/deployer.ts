@@ -59,18 +59,28 @@ export async function deploy(
     // 4. Authenticate
     if (config.api_key) {
       notify("auth", "start", "Verifying API key authentication...");
-      // For API key, check session or proceed
       notify("auth", "success", "API Key configured.");
+    } else if (config.token) {
+      notify("auth", "start", "Authenticating via OpenID Connect token...");
+      const authRes = await client.auth({ accessToken: config.token });
+      if (isProblem(authRes)) {
+        throw new Error(`Authentication error: ${authRes.detail}`);
+      }
+      notify("auth", "success", "OIDC token authentication successful.");
     } else {
       notify(
         "auth",
         "start",
         `Authenticating with instance as user "${config.username}"...`
       );
-      const authRes = await client.auth({
-        user: config.username!,
-        password: config.password!,
-      });
+      const authRes = await client.auth(
+        {
+          user: config.username!,
+          password: config.password!,
+          otp: config.otp,
+        },
+        { clientId: config.client_id }
+      );
 
       if (isProblem(authRes)) {
         throw new Error(`Authentication error: ${authRes.detail}`);

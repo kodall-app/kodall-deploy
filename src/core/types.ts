@@ -8,6 +8,9 @@ export interface EnvironmentConfig {
   web_app_path?: string;
   dist_path?: string;
   api_key?: string;
+  token?: string;
+  otp?: string;
+  client_id?: string;
 }
 
 /**
@@ -31,6 +34,9 @@ export interface ResolvedConfig {
   web_app_path: string;
   dist_path: string;
   api_key?: string;
+  token?: string;
+  otp?: string;
+  client_id?: string;
   username?: string;
   password?: string;
   env?: string;
@@ -49,6 +55,9 @@ export interface DeployOptions {
   username?: string;
   password?: string;
   apiKey?: string;
+  token?: string;
+  otp?: string;
+  clientId?: string;
   ci?: boolean;
   dryRun?: boolean;
   silent?: boolean;
@@ -106,6 +115,9 @@ export interface RollbackOptions {
   username?: string;
   password?: string;
   apiKey?: string;
+  token?: string;
+  otp?: string;
+  clientId?: string;
   targetStorageId?: string | number;
   stepsBack?: number;
   ci?: boolean;

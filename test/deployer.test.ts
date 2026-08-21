@@ -284,4 +284,41 @@ describe("Deployer Pipeline", () => {
       )
     ).rejects.toThrow("Update validation error");
   });
+
+  it("should deploy successfully using OpenID Connect token", async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+      if (url.endsWith("/auth")) {
+        const headerVal = init?.headers?.["Oidc-Auth-Token"] || init?.headers?.["Oidc-auth-token"];
+        if (headerVal === "my-valid-oidc-token") {
+          return Promise.resolve(new Response(JSON.stringify({ userName: "oidc-admin" }), { status: 200 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ detail: "Invalid token" }), { status: 401 }));
+      }
+      if (url.endsWith("/rest/fetch")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (url.endsWith("/storage")) {
+        return Promise.resolve(new Response(JSON.stringify([{ id: 888, name: "app.zip" }]), { status: 200 }));
+      }
+      if (url.endsWith("/rest/entity/web_app")) {
+        return Promise.resolve(new Response(JSON.stringify({ key: 99, operation: "insert" }), { status: 200 }));
+      }
+      return Promise.reject(new Error(`Unhandled URL: ${url}`));
+    });
+
+    const result = await deploy(
+      {
+        instance: "https://mock.instance.com",
+        webAppName: "oidc-app",
+        webAppPath: "oidc-app",
+        distPath: distDir,
+        token: "my-valid-oidc-token",
+        healthCheck: false,
+      },
+      tempDir
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.storageId).toBe(888);
+  });
 });

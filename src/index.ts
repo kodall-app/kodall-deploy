@@ -23,6 +23,11 @@ export {
 } from "./core/config.js";
 export { KodallNodeClient, type KodallNodeClientOptions } from "./client/kodall-node-client.js";
 export { CookieStore } from "./client/cookie-store.js";
+export {
+  executeBrowserOAuthLogin,
+  openUrlInBrowser,
+  DEFAULT_OAUTH_PORT,
+} from "./client/pkce-auth.js";
 export { checkBuildStatus, runBuild } from "./core/build-check.js";
 export { checkEndpointHealth } from "./core/health.js";
 export {

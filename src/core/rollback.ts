@@ -26,12 +26,25 @@ export async function rollback(
       username: options.username,
       password: options.password,
       apiKey: options.apiKey,
+      token: options.token,
+      otp: options.otp,
+      clientId: options.clientId,
     },
     cwd
   );
 
-  const { instance, web_app_name, web_app_path, api_key, username, password, env } =
-    configState.resolved;
+  const {
+    instance,
+    web_app_name,
+    web_app_path,
+    api_key,
+    token,
+    otp,
+    client_id,
+    username,
+    password,
+    env,
+  } = configState.resolved;
 
   if (!instance) {
     throw new Error("Missing target instance URL for rollback");
@@ -67,11 +80,19 @@ export async function rollback(
     apiKey: api_key,
   });
 
-  if (!api_key) {
-    if (!username || !password) {
-      throw new Error("Missing credentials (API Key or Username/Password) for rollback");
+  if (api_key) {
+    notify("auth", "success", "API Key configured.");
+  } else if (token) {
+    const authRes = await client.auth({ accessToken: token });
+    if (isProblem(authRes)) {
+      throw new Error(`Authentication failed: ${authRes.detail || "Invalid OIDC token"}`);
     }
-    const authRes = await client.auth({ user: username, password });
+    notify("auth", "success", "OIDC token authentication successful.");
+  } else {
+    if (!username || !password) {
+      throw new Error("Missing credentials (API Key, Token, or Username/Password) for rollback");
+    }
+    const authRes = await client.auth({ user: username, password, otp }, { clientId: client_id });
     if (isProblem(authRes)) {
       throw new Error(`Authentication failed: ${authRes.detail || "Invalid credentials"}`);
     }

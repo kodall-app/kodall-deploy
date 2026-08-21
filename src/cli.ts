@@ -15,6 +15,9 @@ import {
 } from "./core/config.js";
 import { deploy } from "./core/deployer.js";
 import { detectFramework } from "./core/detector.js";
+import { KodallNodeClient } from "./client/kodall-node-client.js";
+import { DEFAULT_OAUTH_PORT, executeBrowserOAuthLogin } from "./client/pkce-auth.js";
+import { isProblem } from "./client/types.js";
 import {
   cloneEnvironment,
   EnvironmentInfo,
@@ -58,6 +61,9 @@ ${bold("OPTIONS:")}
   -u, --user <username>     ONE Framework login username
   -P, --password <password> ONE Framework login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
+      --token <token>       OAuth / OpenID Connect access token (bypasses username/password)
+  -O, --otp <code>          One-Time Password / 2FA code for authentication
+      --client-id <id>      OAuth / OpenID Connect Client ID [default: admin-cli]
   -c, --config <file>       Path to config file [default: kodall-webapp.config.json]
   -l, --list-envs           List all configured environments in a table
   -s, --status [env]        Display live status & health dashboard for environment(s)
@@ -86,6 +92,9 @@ ${bold("ENVIRONMENT VARIABLES:")}
   ONE_USERNAME, ONE_USER            Login username
   ONE_PASSWORD                      Login password
   ONE_API_KEY, KODALL_API_KEY       API key
+  ONE_TOKEN, KODALL_TOKEN           OAuth / OpenID Connect access token
+  ONE_OTP, KODALL_OTP               One-Time Password (OTP / 2FA)
+  ONE_CLIENT_ID, KODALL_CLIENT_ID   OAuth Client ID
 
 ${bold("EXAMPLES:")}
   $ one-deploy                      # Interactive deployment menu
@@ -98,6 +107,28 @@ ${bold("EXAMPLES:")}
   $ one-deploy -e staging --dry-run # Validate and test staging deployment
   $ one-deploy --ci -u admin -P secret # Non-interactive CI deployment
 `;
+
+async function probeAuthType(
+  instanceUrl?: string
+): Promise<{ isOidc: boolean; oidcIssuer?: string; name?: string }> {
+  if (!instanceUrl) return { isOidc: false };
+  try {
+    const client = new KodallNodeClient({ baseUrl: instanceUrl });
+    const sessionRes = await client.session();
+    if (
+      !isProblem(sessionRes) &&
+      sessionRes.oidcIssuer &&
+      sessionRes.oidcIssuer.trim()
+    ) {
+      return {
+        isOidc: true,
+        oidcIssuer: sessionRes.oidcIssuer,
+        name: sessionRes.name,
+      };
+    }
+  } catch {}
+  return { isOidc: false };
+}
 
 async function main() {
   const rawArgs = process.argv.slice(2);
@@ -252,6 +283,10 @@ async function main() {
     user: { type: "string" as const, short: "u" },
     password: { type: "string" as const, short: "P" },
     "api-key": { type: "string" as const, short: "k" },
+    token: { type: "string" as const },
+    "oidc-token": { type: "string" as const },
+    otp: { type: "string" as const, short: "O" },
+    "client-id": { type: "string" as const },
     config: { type: "string" as const, short: "c" },
     "list-envs": { type: "boolean" as const, short: "l", default: false },
     status: { type: "string" as const, short: "s" },
@@ -553,16 +588,63 @@ async function main() {
 
     let batchUser = flags.user;
     let batchPass = flags.password;
+    const targetTokens: Record<string, string> = {};
+    const targetApiKeys: Record<string, string> = {};
+    const realmTokens: Record<string, string> = {};
 
     // If running interactively, check if any target needs credentials
-    if (!isCi && !flags["api-key"]) {
-      const needsAuth = matchedTargets.some((t) => {
+    if (!isCi && !flags["api-key"] && !flags.token && !flags["oidc-token"]) {
+      for (const target of matchedTargets) {
+        const envConf = loadedConfig.environments?.[target];
+        if (envConf?.api_key || envConf?.token) continue;
+
+        const targetInstance =
+          envConf?.instance ||
+          flags.instance ||
+          (loadedConfig.default_env && loadedConfig.environments?.[loadedConfig.default_env]?.instance);
+        const probe = await probeAuthType(targetInstance);
+
+        if (probe.isOidc) {
+          const client = new KodallNodeClient({ baseUrl: targetInstance! });
+          const oidcProvider = await client.getOidcIssuer();
+          if (oidcProvider) {
+            const realmKey = `${oidcProvider.issuer || probe.oidcIssuer || targetInstance}::${flags["client-id"] || "account"}`;
+            if (realmTokens[realmKey]) {
+              targetTokens[target] = realmTokens[realmKey];
+              console.log(
+                `\n  ${cyan("ℹ")} [${bold(target)}] Reusing active OpenID session for realm (${dim(oidcProvider.issuer || probe.oidcIssuer || targetInstance || "")})`
+              );
+              continue;
+            }
+
+            console.log(
+              `\n  ${cyan("ℹ")} [${bold(target)}] uses ${yellow("OAuth / OpenID Connect")} (${dim(probe.oidcIssuer || targetInstance || "")})`
+            );
+            console.log(dim(`\n  Opening browser for login for [${target}]...`));
+            const tokens = await executeBrowserOAuthLogin({
+              oidcProvider,
+              clientId: flags["client-id"] || "account",
+              port: DEFAULT_OAUTH_PORT,
+              onAuthUrl: (url) => {
+                console.log(`  ${cyan("▶")} Opening login page in browser...`);
+                console.log(dim(`    If it didn't open automatically: ${url}\n`));
+              },
+            });
+            targetTokens[target] = tokens.accessToken;
+            realmTokens[realmKey] = tokens.accessToken;
+            log.success(`Captured OpenID Connect access token for [${target}]!`);
+            await new Promise((r) => setTimeout(r, 250));
+          }
+        }
+      }
+
+      const needsNativeAuth = matchedTargets.some((t) => {
         const envConf = loadedConfig.environments?.[t];
-        return !envConf?.api_key;
+        return !envConf?.api_key && !envConf?.token && !targetTokens[t] && !targetApiKeys[t];
       });
 
-      if (needsAuth && (!batchUser || !batchPass)) {
-        console.log(dim("\nEnter credentials for environments without configured API keys:"));
+      if (needsNativeAuth && (!batchUser || !batchPass)) {
+        console.log(dim("\nEnter credentials for native ONE Framework environments:"));
         if (!batchUser) {
           batchUser = await askText("ONE Username", process.env.USER || process.env.USERNAME);
         }
@@ -595,7 +677,8 @@ async function main() {
         distPath: flags.dist,
         username: batchUser,
         password: batchPass,
-        apiKey: flags["api-key"],
+        apiKey: flags["api-key"] || targetApiKeys[target],
+        token: flags.token || flags["oidc-token"] || targetTokens[target],
         ci: isCi,
         dryRun: flags["dry-run"],
         healthCheck: !flags["no-health-check"],
@@ -659,6 +742,9 @@ async function main() {
     username: flags.user,
     password: flags.password,
     apiKey: flags["api-key"] || customDeployOpts?.apiKey,
+    token: flags.token || flags["oidc-token"] || customDeployOpts?.token,
+    otp: flags.otp || customDeployOpts?.otp,
+    clientId: flags["client-id"] || customDeployOpts?.clientId,
     ci: isCi,
     dryRun: flags["dry-run"],
   };
@@ -716,13 +802,51 @@ async function main() {
 
     configState = resolveConfig(deployOpts);
 
-    // Check credentials: if no api_key, prompt username & password if missing
-    if (!configState.resolved.api_key && !flags["api-key"]) {
-      if (!deployOpts.username && !configState.resolved.username) {
-        deployOpts.username = await askText("ONE Username", process.env.USER || process.env.USERNAME);
-      }
-      if (!deployOpts.password && !configState.resolved.password) {
-        deployOpts.password = await askPassword("ONE Password");
+    // Check credentials: if no api_key and no token, prompt username & password if missing
+    if (
+      !configState.resolved.api_key &&
+      !flags["api-key"] &&
+      !configState.resolved.token &&
+      !flags.token &&
+      !flags["oidc-token"]
+    ) {
+      const targetInstance = deployOpts.instance || configState.resolved.instance;
+      const authProbe = await probeAuthType(targetInstance);
+
+      if (authProbe.isOidc) {
+        console.log(
+          `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${yellow("OAuth / OpenID Connect")}`
+        );
+        if (authProbe.oidcIssuer) {
+          console.log(`    ${dim("IdP Realm:")} ${dim(authProbe.oidcIssuer)}`);
+        }
+
+        const client = new KodallNodeClient({ baseUrl: targetInstance! });
+        const oidcProvider = await client.getOidcIssuer();
+        if (oidcProvider) {
+          console.log(dim("\n  Opening browser for login..."));
+          const tokens = await executeBrowserOAuthLogin({
+            oidcProvider,
+            clientId: flags["client-id"] || "account",
+            port: DEFAULT_OAUTH_PORT,
+            onAuthUrl: (url) => {
+              console.log(`  ${cyan("▶")} Opening login page in browser...`);
+              console.log(dim(`    If it didn't open automatically: ${url}\n`));
+            },
+          });
+          deployOpts.token = tokens.accessToken;
+          log.success("Captured OpenID Connect access token from browser login!");
+        }
+      } else {
+        console.log(
+          `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${green("ONE Framework Basic Login")}`
+        );
+        if (!deployOpts.username && !configState.resolved.username) {
+          deployOpts.username = await askText("ONE Username", process.env.USER || process.env.USERNAME);
+        }
+        if (!deployOpts.password && !configState.resolved.password) {
+          deployOpts.password = await askPassword("ONE Password");
+        }
       }
     }
   }
@@ -1217,9 +1341,45 @@ async function handleRollback(
   let pass = flags.password;
 
   const envConf = targetEnv && loadedConfig.environments ? loadedConfig.environments[targetEnv] : undefined;
-  if (!flags["api-key"] && !envConf?.api_key) {
-    if (!user) user = await askText("ONE Username", process.env.USER || process.env.USERNAME);
-    if (!pass) pass = await askPassword("ONE Password");
+  if (!flags["api-key"] && !flags.token && !flags["oidc-token"] && !envConf?.api_key && !envConf?.token) {
+    const targetInstance = flags.instance || envConf?.instance || (loadedConfig.default_env && loadedConfig.environments?.[loadedConfig.default_env]?.instance);
+    const authProbe = await probeAuthType(targetInstance);
+
+    if (authProbe.isOidc) {
+      console.log(
+        `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${yellow("OAuth / OpenID Connect")}`
+      );
+      if (authProbe.oidcIssuer) {
+        console.log(`    ${dim("IdP Realm:")} ${dim(authProbe.oidcIssuer)}`);
+      }
+
+      const client = new KodallNodeClient({ baseUrl: targetInstance! });
+      const oidcProvider = await client.getOidcIssuer();
+      if (oidcProvider) {
+        console.log(dim("\n  Opening browser for login..."));
+        const tokens = await executeBrowserOAuthLogin({
+          oidcProvider,
+          clientId: flags["client-id"] || "account",
+          port: DEFAULT_OAUTH_PORT,
+          onAuthUrl: (url) => {
+            console.log(`  ${cyan("▶")} Opening login page in browser...`);
+            console.log(dim(`    If it didn't open automatically: ${url}\n`));
+          },
+        });
+        flags.token = tokens.accessToken;
+        log.success("Captured OpenID Connect access token from browser login!");
+      }
+    } else {
+      console.log(
+        `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${green("ONE Framework Basic Login")}`
+      );
+      if (!user) {
+        user = await askText("ONE Username", process.env.USER || process.env.USERNAME);
+      }
+      if (!pass) {
+        pass = await askPassword("ONE Password");
+      }
+    }
   }
 
   const spinner = new Spinner("", false);
@@ -1233,6 +1393,9 @@ async function handleRollback(
     username: user,
     password: pass,
     apiKey: flags["api-key"],
+    token: flags.token || flags["oidc-token"],
+    otp: flags.otp,
+    clientId: flags["client-id"],
     ci: flags.ci,
     onProgress: (step, status, message) => {
       if (status === "start") spinner.start(message || `Rolling back ${step}...`);

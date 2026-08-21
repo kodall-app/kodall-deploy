@@ -42,16 +42,40 @@ export type Entity = {
 export type UserPassword = {
   user: string;
   password: string;
+  otp?: string;
+};
+
+export type OidcTokens = {
+  accessToken: string;
+  refreshToken?: string;
+};
+
+export type AuthCredential =
+  | UserPassword
+  | OidcTokens
+  | { accessToken: string; refreshToken?: string; otp?: string };
+
+export type OpenIdProvider = {
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  userinfo_endpoint?: string;
+  end_session_endpoint?: string;
+  device_authorization_endpoint?: string;
+  [key: string]: any;
 };
 
 export type Session = {
   clientAdress?: string;
+  clientAddress?: string;
   name?: string;
   isSecure?: boolean;
   version?: string;
+  oidcIssuer?: string;
   userName?: string;
   userKey?: number;
   roles?: string[];
+  [key: string]: any;
 };
 
 export function isValidation(object: any): object is Validation {
