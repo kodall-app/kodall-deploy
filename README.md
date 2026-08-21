@@ -41,7 +41,7 @@ A fast, modern CLI tool and TypeScript library to package, bundle, and deploy we
 * 📜 **Deployment History & Instant Rollback**: Sub-second rollback to any previous storage build (`--rollback`) with zero rebuild or re-upload.
 * ⚙️ **Environment Management Suite**: Add, remove, clone, list, and set default environments directly from CLI flags or interactive menus.
 * 📊 **Live Remote Status Dashboard**: Inspect live server availability, active storage IDs, and response latency across all instances simultaneously (`--status`).
-* 🤖 **CI/CD Workflow Generator**: Generate ready-to-run automated pipeline files for GitHub Actions, GitLab CI, or Bitbucket Pipelines (`--init-ci`).
+* 🤖 **CI/CD Workflow Generator**: Generate ready-to-run automated pipeline files for GitHub Actions, GitLab CI, Bitbucket Pipelines, Jenkins, Azure DevOps, CircleCI, or AWS CodeBuild (`--init-ci`).
 * 🌍 **Multi-Environment Batch Deployments**: Deploy to specific environments (`-e dev,staging`), categories (`--type prod`), or all servers sequentially (`--all`).
 * 🔐 **Flexible Authentication**: Supports API Key tokens and Username/Password with automatic session and CSRF handling.
 * 🧪 **Dry-Run Mode**: Test configurations, authentication, and server routes without uploading or mutating files (`--dry-run`).
@@ -349,6 +349,15 @@ npx one-deploy --rollback 144 -e prod
 
 Run `npx one-deploy --init-ci` to automatically generate ready-to-use workflows for your CI platform.
 
+Supported CI/CD platforms:
+- **GitHub Actions** (`.github/workflows/one-deploy.yml`)
+- **GitLab CI** (`.gitlab-ci.yml`)
+- **Bitbucket Pipelines** (`bitbucket-pipelines.yml`)
+- **Jenkins** (`Jenkinsfile`)
+- **Azure DevOps Pipelines** (`azure-pipelines.yml`)
+- **CircleCI** (`.circleci/config.yml`)
+- **AWS CodeBuild** (`buildspec.yml`)
+
 ### GitHub Actions (`.github/workflows/one-deploy.yml`)
 
 ```yaml
@@ -388,6 +397,53 @@ jobs:
             "main") npx kodall-one-deploy --ci -e prod ;;
             *) echo "No deployment mapping found for branch ${{ github.ref_name }}" && exit 1 ;;
           esac
+```
+
+### Jenkins (`Jenkinsfile`)
+
+```groovy
+pipeline {
+    agent any
+
+    tools {
+        nodejs 'NodeJS 20'
+    }
+
+    environment {
+        ONE_API_KEY = credentials('ONE_API_KEY')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install & Build') {
+            steps {
+                sh 'npm ci'
+                sh 'npm run build'
+            }
+        }
+
+        stage('Deploy to ONE Framework') {
+            steps {
+                script {
+                    def targetBranch = env.BRANCH_NAME ?: env.GIT_BRANCH?.replaceAll('^origin/', '')
+                    switch (targetBranch) {
+                        case "main":
+                            sh 'npx kodall-one-deploy --ci -e prod'
+                            break
+                        default:
+                            echo "No deployment mapping configured for branch ${targetBranch}"
+                            break
+                    }
+                }
+            }
+        }
+    }
+}
 ```
 
 ---

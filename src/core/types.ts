@@ -211,7 +211,14 @@ export interface RemoteEnvironmentStatus {
 /**
  * Supported CI/CD pipeline providers
  */
-export type CIProvider = "github" | "gitlab" | "bitbucket";
+export type CIProvider =
+  | "github"
+  | "gitlab"
+  | "bitbucket"
+  | "jenkins"
+  | "azure"
+  | "circleci"
+  | "aws";
 
 /**
  * Detected or specified Node.js package manager

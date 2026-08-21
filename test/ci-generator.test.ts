@@ -5,10 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   detectExistingCIProvider,
   detectPackageManager,
+  generateAWSCodeBuildWorkflow,
+  generateAzureDevOpsWorkflow,
   generateBitbucketPipelinesWorkflow,
+  generateCircleCIWorkflow,
   generateCIWorkflow,
   generateGitHubActionsWorkflow,
   generateGitLabCIWorkflow,
+  generateJenkinsfileWorkflow,
 } from "../src/core/ci-generator.js";
 
 describe("CI/CD Workflow Generator", () => {
@@ -57,6 +61,26 @@ describe("CI/CD Workflow Generator", () => {
     it("should detect Bitbucket from bitbucket-pipelines.yml", () => {
       fs.writeFileSync(path.join(tempDir, "bitbucket-pipelines.yml"), "pipelines: {}");
       expect(detectExistingCIProvider(tempDir)).toBe("bitbucket");
+    });
+
+    it("should detect Jenkins from Jenkinsfile", () => {
+      fs.writeFileSync(path.join(tempDir, "Jenkinsfile"), "pipeline {}");
+      expect(detectExistingCIProvider(tempDir)).toBe("jenkins");
+    });
+
+    it("should detect Azure DevOps from azure-pipelines.yml", () => {
+      fs.writeFileSync(path.join(tempDir, "azure-pipelines.yml"), "trigger: []");
+      expect(detectExistingCIProvider(tempDir)).toBe("azure");
+    });
+
+    it("should detect CircleCI from .circleci folder", () => {
+      fs.mkdirSync(path.join(tempDir, ".circleci"));
+      expect(detectExistingCIProvider(tempDir)).toBe("circleci");
+    });
+
+    it("should detect AWS CodeBuild from buildspec.yml", () => {
+      fs.writeFileSync(path.join(tempDir, "buildspec.yml"), "version: 0.2");
+      expect(detectExistingCIProvider(tempDir)).toBe("aws");
     });
 
     it("should return undefined when no CI config exists", () => {
@@ -138,9 +162,80 @@ describe("CI/CD Workflow Generator", () => {
       });
 
       expect(yaml).toContain("image: node:20");
-      expect(yaml).toContain("branches:");
+      expect(yaml).toContain("pipelines:");
       expect(yaml).toContain("develop:");
       expect(yaml).toContain("npx kodall-one-deploy --ci -e dev");
+    });
+  });
+
+  describe("generateJenkinsfileWorkflow", () => {
+    it("should generate valid Jenkinsfile pipeline", () => {
+      const jf = generateJenkinsfileWorkflow({
+        provider: "jenkins",
+        mappings: [
+          { envName: "dev", branch: "develop" },
+          { envName: "prod", branch: "main" },
+        ],
+        packageManager: "npm",
+        nodeVersion: "20",
+      });
+
+      expect(jf).toContain("pipeline {");
+      expect(jf).toContain("nodejs 'NodeJS 20'");
+      expect(jf).toContain("ONE_API_KEY = credentials('ONE_API_KEY')");
+      expect(jf).toContain("case \"develop\":");
+      expect(jf).toContain("sh 'npx kodall-one-deploy --ci -e dev'");
+      expect(jf).toContain("case \"main\":");
+      expect(jf).toContain("sh 'npx kodall-one-deploy --ci -e prod'");
+    });
+  });
+
+  describe("generateAzureDevOpsWorkflow", () => {
+    it("should generate valid Azure DevOps pipeline YAML", () => {
+      const yaml = generateAzureDevOpsWorkflow({
+        provider: "azure",
+        mappings: [{ envName: "prod", branch: "main" }],
+        packageManager: "pnpm",
+        nodeVersion: "20",
+      });
+
+      expect(yaml).toContain("trigger:");
+      expect(yaml).toContain("- main");
+      expect(yaml).toContain("vmImage: 'ubuntu-latest'");
+      expect(yaml).toContain("task: NodeTool@0");
+      expect(yaml).toContain("pnpm install --frozen-lockfile");
+      expect(yaml).toContain('"main") npx kodall-one-deploy --ci -e prod ;;');
+    });
+  });
+
+  describe("generateCircleCIWorkflow", () => {
+    it("should generate valid CircleCI config YAML", () => {
+      const yaml = generateCircleCIWorkflow({
+        provider: "circleci",
+        mappings: [{ envName: "dev", branch: "develop" }],
+        packageManager: "npm",
+        nodeVersion: "20",
+      });
+
+      expect(yaml).toContain("version: 2.1");
+      expect(yaml).toContain("image: cimg/node:20.0");
+      expect(yaml).toContain("npx kodall-one-deploy --ci -e dev");
+      expect(yaml).toContain("- develop");
+    });
+  });
+
+  describe("generateAWSCodeBuildWorkflow", () => {
+    it("should generate valid AWS CodeBuild buildspec YAML", () => {
+      const yaml = generateAWSCodeBuildWorkflow({
+        provider: "aws",
+        mappings: [{ envName: "staging", branch: "release/*" }],
+        packageManager: "npm",
+        nodeVersion: "20",
+      });
+
+      expect(yaml).toContain("version: 0.2");
+      expect(yaml).toContain("nodejs: 20");
+      expect(yaml).toContain("npx kodall-one-deploy --ci -e staging");
     });
   });
 
@@ -184,6 +279,58 @@ describe("CI/CD Workflow Generator", () => {
 
       expect(res.filePath).toBe("bitbucket-pipelines.yml");
       expect(fs.existsSync(path.join(tempDir, "bitbucket-pipelines.yml"))).toBe(true);
+    });
+
+    it("should write Jenkinsfile to filesystem", () => {
+      const res = generateCIWorkflow(
+        {
+          provider: "jenkins",
+          mappings: [{ envName: "prod", branch: "main" }],
+        },
+        tempDir
+      );
+
+      expect(res.filePath).toBe("Jenkinsfile");
+      expect(fs.existsSync(path.join(tempDir, "Jenkinsfile"))).toBe(true);
+    });
+
+    it("should write azure-pipelines.yml to filesystem", () => {
+      const res = generateCIWorkflow(
+        {
+          provider: "azure",
+          mappings: [{ envName: "prod", branch: "main" }],
+        },
+        tempDir
+      );
+
+      expect(res.filePath).toBe("azure-pipelines.yml");
+      expect(fs.existsSync(path.join(tempDir, "azure-pipelines.yml"))).toBe(true);
+    });
+
+    it("should write .circleci/config.yml to filesystem", () => {
+      const res = generateCIWorkflow(
+        {
+          provider: "circleci",
+          mappings: [{ envName: "prod", branch: "main" }],
+        },
+        tempDir
+      );
+
+      expect(res.filePath).toBe(".circleci/config.yml");
+      expect(fs.existsSync(path.join(tempDir, ".circleci", "config.yml"))).toBe(true);
+    });
+
+    it("should write buildspec.yml to filesystem", () => {
+      const res = generateCIWorkflow(
+        {
+          provider: "aws",
+          mappings: [{ envName: "prod", branch: "main" }],
+        },
+        tempDir
+      );
+
+      expect(res.filePath).toBe("buildspec.yml");
+      expect(fs.existsSync(path.join(tempDir, "buildspec.yml"))).toBe(true);
     });
 
     it("should throw error on unsupported provider", () => {

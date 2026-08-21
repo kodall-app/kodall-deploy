@@ -36,6 +36,18 @@ export function detectExistingCIProvider(cwd: string = process.cwd()): CIProvide
   if (fs.existsSync(path.join(cwd, "bitbucket-pipelines.yml"))) {
     return "bitbucket";
   }
+  if (fs.existsSync(path.join(cwd, "Jenkinsfile"))) {
+    return "jenkins";
+  }
+  if (fs.existsSync(path.join(cwd, "azure-pipelines.yml"))) {
+    return "azure";
+  }
+  if (fs.existsSync(path.join(cwd, ".circleci"))) {
+    return "circleci";
+  }
+  if (fs.existsSync(path.join(cwd, "buildspec.yml"))) {
+    return "aws";
+  }
   return undefined;
 }
 
@@ -181,6 +193,211 @@ ${branchSteps.join("\n")}
 }
 
 /**
+ * Generates a Jenkinsfile Declarative Pipeline string
+ */
+export function generateJenkinsfileWorkflow(options: CIWorkflowOptions): string {
+  const pm = options.packageManager || "npm";
+  const nodeVersion = options.nodeVersion || "20";
+  const installCmd = getInstallCommand(pm);
+  const buildCmd = getBuildCommand(pm);
+
+  const branchCases = options.mappings
+    .map(
+      (m) => `                        case "${m.branch}":
+                            sh 'npx kodall-one-deploy --ci -e ${m.envName}'
+                            break`
+    )
+    .join("\n");
+
+  return `pipeline {
+    agent any
+
+    tools {
+        nodejs 'NodeJS ${nodeVersion}'
+    }
+
+    environment {
+        ONE_API_KEY = credentials('ONE_API_KEY')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install & Build') {
+            steps {
+                sh '${installCmd}'
+                sh '${buildCmd}'
+            }
+        }
+
+        stage('Deploy to ONE Framework') {
+            steps {
+                script {
+                    def targetBranch = env.BRANCH_NAME ?: env.GIT_BRANCH?.replaceAll('^origin/', '')
+                    switch (targetBranch) {
+${branchCases}
+                        default:
+                            echo "No deployment mapping configured for branch \${targetBranch}"
+                            break
+                    }
+                }
+            }
+        }
+    }
+}
+`;
+}
+
+/**
+ * Generates an Azure DevOps Pipeline YAML string
+ */
+export function generateAzureDevOpsWorkflow(options: CIWorkflowOptions): string {
+  const pm = options.packageManager || "npm";
+  const nodeVersion = options.nodeVersion || "20";
+  const branches = Array.from(new Set(options.mappings.map((m) => m.branch)));
+  const installCmd = getInstallCommand(pm);
+  const buildCmd = getBuildCommand(pm);
+
+  const branchCases = options.mappings
+    .map((m) => `          "${m.branch}") npx kodall-one-deploy --ci -e ${m.envName} ;;`)
+    .join("\n");
+
+  return `trigger:
+  branches:
+    include:
+${branches.map((b) => `      - ${b}`).join("\n")}
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: ONE_DEPLOY_SECRETS
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '${nodeVersion}.x'
+    displayName: 'Install Node.js ${nodeVersion}'
+
+  - script: |
+      ${installCmd}
+    displayName: 'Install Dependencies'
+
+  - script: |
+      ${buildCmd}
+    displayName: 'Build Web Application'
+
+  - script: |
+      case "$(Build.SourceBranchName)" in
+${branchCases}
+        *) echo "No deployment mapping for branch $(Build.SourceBranchName)" && exit 1 ;;
+      esac
+    displayName: 'Deploy to ONE Framework'
+    env:
+      ONE_API_KEY: $(ONE_API_KEY)
+      ONE_INSTANCE: $(ONE_INSTANCE)
+`;
+}
+
+/**
+ * Generates a CircleCI 2.1 YAML configuration string
+ */
+export function generateCircleCIWorkflow(options: CIWorkflowOptions): string {
+  const pm = options.packageManager || "npm";
+  const nodeVersion = options.nodeVersion || "20";
+  const branches = Array.from(new Set(options.mappings.map((m) => m.branch)));
+  const installCmd = getInstallCommand(pm);
+  const buildCmd = getBuildCommand(pm);
+
+  const branchCases = options.mappings
+    .map((m) => `              "${m.branch}") npx kodall-one-deploy --ci -e ${m.envName} ;;`)
+    .join("\n");
+
+  return `version: 2.1
+
+executors:
+  node-executor:
+    docker:
+      - image: cimg/node:${nodeVersion}.0
+    working_directory: ~/repo
+
+jobs:
+  build-and-deploy:
+    executor: node-executor
+    steps:
+      - checkout
+      - run:
+          name: Install Dependencies
+          command: ${installCmd}
+      - run:
+          name: Build Application
+          command: ${buildCmd}
+      - run:
+          name: Deploy to ONE Framework
+          command: |
+            case "$CIRCLE_BRANCH" in
+${branchCases}
+              *) echo "No deployment mapping for branch $CIRCLE_BRANCH" && exit 1 ;;
+            esac
+
+workflows:
+  version: 2
+  deploy-pipeline:
+    jobs:
+      - build-and-deploy:
+          filters:
+            branches:
+              only:
+${branches.map((b) => `                - ${b}`).join("\n")}
+`;
+}
+
+/**
+ * Generates an AWS CodeBuild buildspec YAML string
+ */
+export function generateAWSCodeBuildWorkflow(options: CIWorkflowOptions): string {
+  const pm = options.packageManager || "npm";
+  const nodeVersion = options.nodeVersion || "20";
+  const installCmd = getInstallCommand(pm);
+  const buildCmd = getBuildCommand(pm);
+
+  const branchCases = options.mappings
+    .map((m) => `          "${m.branch}") npx kodall-one-deploy --ci -e ${m.envName} ;;`)
+    .join("\n");
+
+  return `version: 0.2
+
+env:
+  secrets-manager:
+    ONE_API_KEY: "one-deploy/credentials:ONE_API_KEY"
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: ${nodeVersion}
+    commands:
+      - ${installCmd}
+
+  build:
+    commands:
+      - ${buildCmd}
+
+  post_build:
+    commands:
+      - |
+        BRANCH_NAME=$(echo $CODEBUILD_SOURCE_VERSION | sed 's/.*\\///')
+        case "$BRANCH_NAME" in
+${branchCases}
+          *) echo "No deployment mapping for branch $BRANCH_NAME" ;;
+        esac
+`;
+}
+
+/**
  * Generates and writes the CI workflow file to the target repository
  */
 export function generateCIWorkflow(
@@ -209,6 +426,22 @@ export function generateCIWorkflow(
     case "bitbucket":
       relativePath = "bitbucket-pipelines.yml";
       content = generateBitbucketPipelinesWorkflow(optsWithDefaults);
+      break;
+    case "jenkins":
+      relativePath = "Jenkinsfile";
+      content = generateJenkinsfileWorkflow(optsWithDefaults);
+      break;
+    case "azure":
+      relativePath = "azure-pipelines.yml";
+      content = generateAzureDevOpsWorkflow(optsWithDefaults);
+      break;
+    case "circleci":
+      relativePath = path.join(".circleci", "config.yml");
+      content = generateCircleCIWorkflow(optsWithDefaults);
+      break;
+    case "aws":
+      relativePath = "buildspec.yml";
+      content = generateAWSCodeBuildWorkflow(optsWithDefaults);
       break;
     default:
       throw new Error(`Unsupported CI provider: ${options.provider}`);

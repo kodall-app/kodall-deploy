@@ -1696,29 +1696,62 @@ async function handleManageEnvs(configPath: string) {
 async function handleInitCI(configPath: string) {
   console.log(bold("\nGenerate CI/CD Deployment Workflow:\n"));
 
-  const detectedProvider = detectExistingCIProvider(process.cwd()) || "github";
+  const detectedProvider = detectExistingCIProvider(process.cwd());
   const detectedPM = detectPackageManager(process.cwd());
 
-  const providerChoices = [
-    "GitHub Actions (.github/workflows/one-deploy.yml)",
-    "GitLab CI (.gitlab-ci.yml)",
-    "Bitbucket Pipelines (bitbucket-pipelines.yml)",
+  if (detectedProvider) {
+    const detectedName =
+      detectedProvider === "github"
+        ? "GitHub Actions"
+        : detectedProvider === "gitlab"
+        ? "GitLab CI"
+        : detectedProvider === "bitbucket"
+        ? "Bitbucket Pipelines"
+        : detectedProvider === "jenkins"
+        ? "Jenkins"
+        : detectedProvider === "azure"
+        ? "Azure DevOps"
+        : detectedProvider === "circleci"
+        ? "CircleCI"
+        : "AWS CodeBuild";
+    console.log(dim(`  ${cyan("ℹ")} Detected existing CI configuration: ${bold(detectedName)}\n`));
+  }
+
+  const allProviders: Array<{ id: CIProvider; label: string }> = [
+    { id: "github", label: "GitHub Actions (.github/workflows/one-deploy.yml)" },
+    { id: "gitlab", label: "GitLab CI (.gitlab-ci.yml)" },
+    { id: "bitbucket", label: "Bitbucket Pipelines (bitbucket-pipelines.yml)" },
+    { id: "jenkins", label: "Jenkins (Jenkinsfile)" },
+    { id: "azure", label: "Azure DevOps Pipelines (azure-pipelines.yml)" },
+    { id: "circleci", label: "CircleCI (.circleci/config.yml)" },
+    { id: "aws", label: "AWS CodeBuild (buildspec.yml)" },
   ];
 
-  const defaultProviderIdx =
-    detectedProvider === "gitlab" ? 1 : detectedProvider === "bitbucket" ? 2 : 0;
+  // If a provider is detected in the repo, move it to the top (index 0)
+  if (detectedProvider) {
+    const idx = allProviders.findIndex((p) => p.id === detectedProvider);
+    if (idx > 0) {
+      const [detectedItem] = allProviders.splice(idx, 1);
+      detectedItem.label = `${detectedItem.label} (Detected)`;
+      allProviders.unshift(detectedItem);
+    }
+  }
+
+  const providerChoices = allProviders.map((p) => p.label);
 
   const chosenProviderStr = await askSelect(
     "Select your CI/CD platform:",
     providerChoices,
-    defaultProviderIdx
+    0
   );
 
-  const provider: CIProvider = chosenProviderStr.startsWith("GitHub")
-    ? "github"
-    : chosenProviderStr.startsWith("GitLab")
-    ? "gitlab"
-    : "bitbucket";
+  let provider: CIProvider = "github";
+  if (chosenProviderStr.startsWith("GitLab")) provider = "gitlab";
+  else if (chosenProviderStr.startsWith("Bitbucket")) provider = "bitbucket";
+  else if (chosenProviderStr.startsWith("Jenkins")) provider = "jenkins";
+  else if (chosenProviderStr.startsWith("Azure")) provider = "azure";
+  else if (chosenProviderStr.startsWith("CircleCI")) provider = "circleci";
+  else if (chosenProviderStr.startsWith("AWS")) provider = "aws";
 
   const { fileExists, config } = loadConfigFile(configPath);
   const envKeys = config.environments ? Object.keys(config.environments) : [];
@@ -1728,24 +1761,34 @@ async function handleInitCI(configPath: string) {
     return;
   }
 
-  console.log(dim("\nConfigure Git branch mapping for each deployment environment:"));
+  console.log(
+    dim("\nMap Git branches to environments for automated CI deployment:") +
+    dim("\n(Enter branch name like 'main' or 'develop'. Press Enter on blank or type 'skip' to exclude an environment)\n")
+  );
   const mappings: CIEnvironmentMapping[] = [];
 
   for (const envName of envKeys) {
     const defaultBranch =
-      envName.toLowerCase().includes("prod")
+      envName.toLowerCase() === "prod" || envName.toLowerCase() === "production"
         ? "main"
-        : envName.toLowerCase().includes("stage") || envName.toLowerCase().includes("staging")
+        : envName.toLowerCase() === "staging" || envName.toLowerCase() === "stage"
         ? "staging"
-        : "develop";
+        : envName.toLowerCase() === "dev"
+        ? "develop"
+        : undefined;
 
     const branch = await askText(
-      `Trigger branch for environment "${envName}" (press Enter to skip)`,
+      `Git branch for "${envName}"`,
       defaultBranch,
       false
     );
 
-    if (branch && branch.trim()) {
+    if (
+      branch &&
+      branch.trim() &&
+      branch.trim().toLowerCase() !== "skip" &&
+      branch.trim().toLowerCase() !== "none"
+    ) {
       mappings.push({ envName, branch: branch.trim() });
     }
   }

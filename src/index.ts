@@ -47,6 +47,10 @@ export {
   generateGitHubActionsWorkflow,
   generateGitLabCIWorkflow,
   generateBitbucketPipelinesWorkflow,
+  generateJenkinsfileWorkflow,
+  generateAzureDevOpsWorkflow,
+  generateCircleCIWorkflow,
+  generateAWSCodeBuildWorkflow,
   detectPackageManager,
   detectExistingCIProvider,
 } from "./core/ci-generator.js";
