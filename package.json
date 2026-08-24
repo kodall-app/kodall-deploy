@@ -1,6 +1,6 @@
 {
   "name": "@kodall/kodall-deploy",
-  "version": "1.2.0",
+  "version": "1.0.0",
   "description": "CLI tool and library to deploy web applications to Kodall instances",
   "type": "module",
   "main": "./dist/index.js",
