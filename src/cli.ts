@@ -41,7 +41,7 @@ import {
 import { bold, cyan, dim, green, log, magenta, pad, red, Spinner, yellow } from "./ui/logger.js";
 import { askConfirm, askPassword, askSelect, askText } from "./ui/prompts.js";
 
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 
 const HELP_TEXT = `
 ${bold("kodall-deploy")} ${dim(`v${VERSION}`)}
