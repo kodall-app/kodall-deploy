@@ -29,6 +29,10 @@ export class KodallNodeClient {
 
   constructor(options: KodallNodeClientOptions) {
     let url = (options.baseUrl || "").trim();
+    // Normalize accidental duplicate protocols (e.g. "http://http://192.168.5.69:8181" -> "http://192.168.5.69:8181")
+    while (/^https?:\/\/https?:\/\//i.test(url)) {
+      url = url.replace(/^https?:\/\//i, "");
+    }
     if (url.endsWith("/")) {
       url = url.slice(0, -1);
     }
@@ -64,6 +68,28 @@ export class KodallNodeClient {
   }
 
   /**
+   * Internal fetch wrapper that catches low-level network errors (fetch failed, ECONNREFUSED, etc.)
+   * and enriches them with the target URL, HTTP method, and underlying error cause.
+   */
+  private async safeFetch(
+    url: string,
+    init: RequestInit,
+    actionDesc: string
+  ): Promise<Response> {
+    try {
+      return await fetch(url, init);
+    } catch (err: any) {
+      const causeStr = err?.cause?.message || err?.cause?.code || (err?.cause ? String(err.cause) : "");
+      const fullCause = causeStr ? ` (Cause: ${causeStr})` : "";
+      const method = init.method || "GET";
+      const errorMsg = `[${method} ${url}] ${actionDesc} failed: ${err.message || "fetch failed"}${fullCause}`;
+      const enrichedError = new Error(errorMsg);
+      (enrichedError as any).cause = err;
+      throw enrichedError;
+    }
+  }
+
+  /**
    * Discovers OpenID Connect / OAuth provider information if server is configured with OIDC
    */
   public async getOidcIssuer(): Promise<OpenIdProvider | null> {
@@ -82,10 +108,14 @@ export class KodallNodeClient {
       : `${sessionRes.oidcIssuer}/`;
     const wellKnownUrl = `${issuerUrl}.well-known/openid-configuration`;
 
-    const wellKnownRes = await fetch(wellKnownUrl, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
+    const wellKnownRes = await this.safeFetch(
+      wellKnownUrl,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      },
+      "Get OpenID Configuration"
+    );
 
     if (!wellKnownRes.ok) {
       throw new Error(
@@ -110,10 +140,14 @@ export class KodallNodeClient {
       headers["Oidc-Refresh-Token"] = tokens.refreshToken;
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-    });
+    const response = await this.safeFetch(
+      url,
+      {
+        method: "POST",
+        headers,
+      },
+      "OpenID Auth"
+    );
 
     this.cookieStore.setFromResponse(response);
 
@@ -123,7 +157,7 @@ export class KodallNodeClient {
         return JSON.parse(errorText) as Problem;
       } catch {
         throw new Error(
-          `OpenID authentication failed with status ${response.status}: ${errorText || response.statusText}`
+          `OpenID authentication failed with status ${response.status} [POST ${url}]: ${errorText || response.statusText}`
         );
       }
     }
@@ -146,11 +180,15 @@ export class KodallNodeClient {
       headers["Otp"] = credential.otp;
     }
 
-    let response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(credential),
-    });
+    let response = await this.safeFetch(
+      url,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(credential),
+      },
+      "Basic Auth"
+    );
 
     if (response.status === 400 || response.status === 415) {
       const formParams: Record<string, string> = {
@@ -162,15 +200,19 @@ export class KodallNodeClient {
         formParams.totp = credential.otp;
       }
       const formBody = new URLSearchParams(formParams);
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json, */*",
-          ...(credential.otp ? { "X-OTP": credential.otp } : {}),
+      response = await this.safeFetch(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json, */*",
+            ...(credential.otp ? { "X-OTP": credential.otp } : {}),
+          },
+          body: formBody.toString(),
         },
-        body: formBody.toString(),
-      });
+        "Basic Auth Form Fallback"
+      );
     }
 
     this.cookieStore.setFromResponse(response);
@@ -181,7 +223,7 @@ export class KodallNodeClient {
         return JSON.parse(errorText) as Problem;
       } catch {
         throw new Error(
-          `Authentication failed with status ${response.status}: ${errorText || response.statusText}`
+          `Authentication failed with status ${response.status} [POST ${url}]: ${errorText || response.statusText}`
         );
       }
     }
@@ -237,14 +279,18 @@ export class KodallNodeClient {
 
           const tokenBody = new URLSearchParams(tokenParams);
 
-          const tokenRes = await fetch(oidcProvider.token_endpoint, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-              Accept: "application/json",
+          const tokenRes = await this.safeFetch(
+            oidcProvider.token_endpoint,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Accept: "application/json",
+              },
+              body: tokenBody.toString(),
             },
-            body: tokenBody.toString(),
-          });
+            "OIDC Password Grant"
+          );
 
           if (tokenRes.ok) {
             const tokenData = (await tokenRes.json()) as {
@@ -330,10 +376,14 @@ export class KodallNodeClient {
    */
   public async session(): Promise<Session | Problem> {
     const url = `${this.baseUrl}/auth`;
-    const response = await fetch(url, {
-      method: "GET",
-      headers: this.headers("application/json"),
-    });
+    const response = await this.safeFetch(
+      url,
+      {
+        method: "GET",
+        headers: this.headers("application/json"),
+      },
+      "Session Check"
+    );
 
     this.cookieStore.setFromResponse(response);
 
@@ -343,7 +393,7 @@ export class KodallNodeClient {
         return JSON.parse(errorText) as Problem;
       } catch {
         throw new Error(
-          `Session check failed with status ${response.status}: ${errorText || response.statusText}`
+          `Session check failed with status ${response.status} [GET ${url}]: ${errorText || response.statusText}`
         );
       }
     }
@@ -357,18 +407,22 @@ export class KodallNodeClient {
    */
   public async fetch<T = any>(query: string): Promise<T[]> {
     const url = `${this.baseUrl}/rest/fetch`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: this.headers("text/plain; charset=UTF-8"),
-      body: query,
-    });
+    const response = await this.safeFetch(
+      url,
+      {
+        method: "POST",
+        headers: this.headers("text/plain; charset=UTF-8"),
+        body: query,
+      },
+      `Fetch Query "${query.slice(0, 60)}"`
+    );
 
     this.cookieStore.setFromResponse(response);
 
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
-        `Fetch query failed (${response.status}): ${errorText || response.statusText}`
+        `Fetch query failed [POST ${url}] (${response.status}): ${errorText || response.statusText} [Query: ${query}]`
       );
     }
 
@@ -386,18 +440,22 @@ export class KodallNodeClient {
     }
 
     const url = `${this.baseUrl}/rest/entity/${entity.entity_name}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: this.headers("application/json"),
-      body: JSON.stringify(entity),
-    });
+    const response = await this.safeFetch(
+      url,
+      {
+        method: "POST",
+        headers: this.headers("application/json"),
+        body: JSON.stringify(entity),
+      },
+      `Create Entity "${entity.entity_name}"`
+    );
 
     this.cookieStore.setFromResponse(response);
 
     const result = (await response.json()) as Operation | Validation | Problem;
     if (!response.ok && !isValidation(result) && !isProblem(result)) {
       throw new Error(
-        `Create entity failed (${response.status}): ${JSON.stringify(result)}`
+        `Create entity failed [POST ${url}] (${response.status}): ${JSON.stringify(result)}`
       );
     }
 
@@ -416,18 +474,22 @@ export class KodallNodeClient {
     }
 
     const url = `${this.baseUrl}/rest/entity/${entity.entity_name}/${key}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: this.headers("application/json"),
-      body: JSON.stringify(entity),
-    });
+    const response = await this.safeFetch(
+      url,
+      {
+        method: "POST",
+        headers: this.headers("application/json"),
+        body: JSON.stringify(entity),
+      },
+      `Update Entity "${entity.entity_name}/${key}"`
+    );
 
     this.cookieStore.setFromResponse(response);
 
     const result = (await response.json()) as Operation | Validation | Problem;
     if (!response.ok && !isValidation(result) && !isProblem(result)) {
       throw new Error(
-        `Update entity failed (${response.status}): ${JSON.stringify(result)}`
+        `Update entity failed [POST ${url}] (${response.status}): ${JSON.stringify(result)}`
       );
     }
 
@@ -451,18 +513,22 @@ export class KodallNodeClient {
     // Pass null contentType so fetch auto-generates multipart/form-data boundary
     const headers = this.headers(null);
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
+    const response = await this.safeFetch(
+      url,
+      {
+        method: "POST",
+        headers,
+        body: formData,
+      },
+      `Upload File "${fileName}"${storageKey ? ` to slot ${storageKey}` : ""}`
+    );
 
     this.cookieStore.setFromResponse(response);
 
     const result = (await response.json()) as StorageResponse | Validation | Problem;
     if (!response.ok && !isValidation(result) && !isProblem(result)) {
       throw new Error(
-        `Upload file failed (${response.status}): ${JSON.stringify(result)}`
+        `Upload file failed [POST ${url}] (${response.status}): ${JSON.stringify(result)}`
       );
     }
 
@@ -478,7 +544,7 @@ export class KodallNodeClient {
     storageId: number | string
   ): Promise<{ key: number | string; file_name?: string } | null> {
     try {
-      const query = `FETCH storage_file_version(key, file_name) FILTER AND (id_storage_file == ${storageId})`;
+      const query = `FETCH storage_file_version(key, file_name) FILTER AND (id_storage_file == ${storageId}) ORDER BY version DESC LIMIT 1`;
       const results = await this.fetch<{ key: number | string; file_name?: string }>(query);
       return results?.[0] ?? null; // [0] = newest (server returns DESC by version)
     } catch {

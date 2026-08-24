@@ -133,58 +133,73 @@ export async function rollback(
 
   // 5a. New flow (>= 1.8.0): query server web_app_log for previous storage_file_version
   if (serverSupportsVersioning) {
-    notify(
-      "rollback",
-      "start",
-      `Querying server deployment log for entity (key: ${entityKey})...`
-    );
-
-    let targetStorageFileVersionKey: number | string | undefined;
+    let targetStorageFileVersionKey: number | string | undefined = options.targetStorageId;
     let targetFileName: string | undefined;
+    let targetPath: string | undefined;
 
-    try {
-      const logs = await client.fetch<{
-        key: number | string;
-        status?: string;
-        date_created?: string;
-        storageFileVersionKey?: number | string;
-        file_name?: string;
-      }>(`FETCH web_app_log (key, log, uuid, status, date_created) {
-          storage_file_version TO id_storage_file_version LINK TYPE LEFT (key AS storageFileVersionKey, file_name),
-          web_app TO id_web_app FILTER AND (${entityKey})
-      } ORDER BY key DESC`);
-      // logs[0] = most recent deploy, logs[stepsBack] = N steps back
-      // storageFileVersionKey may be null for pre-1.8.0 log entries (LEFT join)
-      const target = logs[stepsBack];
-      targetStorageFileVersionKey = target?.storageFileVersionKey;
-      targetFileName = target?.file_name;
-    } catch {
-      throw new Error(
-        `Failed to query deployment log from server. Cannot determine rollback target.`
-      );
-    }
-
-    // Rollback requires both >= 1.8.0 AND a non-null storageFileVersionKey on the target entry
     if (!targetStorageFileVersionKey) {
-      throw new Error(
-        `Cannot rollback: target deployment log entry (${stepsBack} step(s) back) has no storage_file_version — ` +
-        `it may be a pre-1.8.0 entry or an entry without a versioned file.`
+      notify(
+        "rollback",
+        "start",
+        `Querying server deployment log for entity (key: ${entityKey})...`
       );
+
+      try {
+        const query = `FETCH web_app_log (key, log, uuid, status, date_created, path) {
+            storage_file_version TO id_storage_file_version LINK TYPE LEFT (key AS storageFileVersionKey, file_name),
+            web_app TO id_web_app FILTER AND (key == ${entityKey})
+        }`;
+        const logs = await client.fetch<{
+          key: number | string;
+          status?: string;
+          date_created?: string;
+          path?: string;
+          storageFileVersionKey?: number | string;
+          file_name?: string;
+        }>(query);
+
+        // Sort newest first client-side
+        logs.sort((a, b) => Number(b.key) - Number(a.key));
+
+        // logs[0] = most recent deploy, logs[stepsBack] = N steps back
+        const target = logs[stepsBack];
+        targetStorageFileVersionKey = target?.storageFileVersionKey;
+        targetFileName = target?.file_name;
+        targetPath = target?.path;
+      } catch (err: any) {
+        throw new Error(
+          `Failed to query deployment log from server: ${err?.message || err}. Cannot determine rollback target.`
+        );
+      }
+
+      // Rollback requires both >= 1.8.0 AND a non-null storageFileVersionKey on the target entry
+      if (!targetStorageFileVersionKey) {
+        throw new Error(
+          `Cannot rollback: target deployment log entry (${stepsBack} step(s) back) has no storage_file_version — ` +
+          `it may be a pre-1.8.0 entry or an entry without a versioned file.`
+        );
+      }
     }
 
+    const pathDesc = targetPath ? ` and path "${targetPath}"` : "";
     notify(
       "rollback",
       "start",
-      `Updating entity (key: ${entityKey}) to storage_file_version ${targetStorageFileVersionKey}${targetFileName ? ` (${targetFileName})` : ""}...`
+      `Updating entity (key: ${entityKey}) to storage_file_version ${targetStorageFileVersionKey}${targetFileName ? ` (${targetFileName})` : ""}${pathDesc}...`
     );
 
-    // Update ONLY id_storage_file_version on web_app
+    // Update id_storage_file_version and path (if recorded in log) on web_app
+    const updateProperties: Record<string, any> = {
+      key: entityKey,
+      id_storage_file_version: targetStorageFileVersionKey,
+    };
+    if (targetPath) {
+      updateProperties.path = targetPath;
+    }
+
     const updateRes = await client.update({
       entity_name: "web_app",
-      properties: {
-        key: entityKey,
-        id_storage_file_version: targetStorageFileVersionKey,
-      },
+      properties: updateProperties,
     });
 
     if (isValidation(updateRes)) {
@@ -207,7 +222,7 @@ export async function rollback(
       fromStorageId,
       toStorageId: targetStorageFileVersionKey,
       webAppName: finalAppName,
-      webAppPath: normalizedPath,
+      webAppPath: targetPath || normalizedPath,
       durationMs,
     };
   }

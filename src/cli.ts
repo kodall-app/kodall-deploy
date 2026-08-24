@@ -81,6 +81,7 @@ ${bold("OPTIONS:")}
       --ci                  Non-interactive CI mode (fail if required parameters are missing)
       --dry-run             Validate build, test auth and query entity without mutating
       --init                Interactively generate or update kodall-webapp.config.json
+      --debug               Print detailed debug info and stack traces on error
   -v, --version             Display CLI version
   -h, --help                Display this help message
 
@@ -306,6 +307,7 @@ async function main() {
     "non-interactive": { type: "boolean" as const, default: false },
     "dry-run": { type: "boolean" as const, default: false },
     init: { type: "boolean" as const, default: false },
+    debug: { type: "boolean" as const, default: false },
     version: { type: "boolean" as const, short: "v", default: false },
     help: { type: "boolean" as const, short: "h", default: false },
   };
@@ -700,11 +702,16 @@ async function main() {
         const res = await deploy(deployOpts);
         spinner.stop();
         results.push({ env: target, result: res });
-      } catch (err) {
+      } catch (err: any) {
         spinner.stop();
         hasFailures = true;
-        results.push({ env: target, error: (err as Error).message });
-        log.error(`[${target}] Failed: ${(err as Error).message}`);
+        const errMsg = err?.message || String(err);
+        const causeMsg = err?.cause?.message ? ` (Cause: ${err.cause.message})` : "";
+        results.push({ env: target, error: `${errMsg}${causeMsg}` });
+        log.error(`[${target}] Failed: ${errMsg}${causeMsg}`);
+        if ((flags.debug || process.env.DEBUG) && err?.stack) {
+          console.error(dim(err.stack));
+        }
       }
     }
 
@@ -905,11 +912,23 @@ async function main() {
       }
     }
     process.exitCode = 0;
-  } catch (error) {
+  } catch (error: any) {
     spinner.stop();
     console.log("");
     log.error(bold(red("Deployment failed:")));
-    console.error(dim((error as Error).message || String(error)));
+    const errMsg = error?.message || String(error);
+    const causeMsg = error?.cause?.message ? `\n  ${dim(`Cause: ${error.cause.message}`)}` : "";
+    console.error(red(`  ${errMsg}`) + causeMsg);
+    if (flags.debug || process.env.DEBUG) {
+      if (error?.stack) {
+        console.error(dim(`\nStack trace:\n${error.stack}`));
+      }
+      if (error?.cause?.stack) {
+        console.error(dim(`\nCause stack trace:\n${error.cause.stack}`));
+      }
+    } else {
+      console.log(dim("\n  (Tip: Re-run with --debug for full stack trace)"));
+    }
     process.exitCode = 1;
   }
 }
@@ -1308,6 +1327,7 @@ async function displayHistoryForEnv(configPath: string, env: string | undefined,
         key: number | string;
         status?: string;
         date_created?: string;
+        path?: string;
         storageFileVersionKey?: number | string;
         file_name?: string;
         _appName?: string; // tag with which name was queried
@@ -1315,7 +1335,7 @@ async function displayHistoryForEnv(configPath: string, env: string | undefined,
 
       for (const appName of namesToQuery) {
         const webAppFilter = appName ? `FILTER AND (name == "${appName}")` : "";
-        const query = `FETCH web_app_log (key, log, uuid, status, date_created) {
+        const query = `FETCH web_app_log (key, log, uuid, status, date_created, path) {
             storage_file_version TO id_storage_file_version LINK TYPE LEFT (key AS storageFileVersionKey, file_name),
             web_app TO id_web_app ${webAppFilter}
         }`;
@@ -1323,6 +1343,7 @@ async function displayHistoryForEnv(configPath: string, env: string | undefined,
           key: number | string;
           status?: string;
           date_created?: string;
+          path?: string;
           storageFileVersionKey?: number | string;
           file_name?: string;
         }>(query);
@@ -1360,6 +1381,7 @@ function displayServerHistory(
     key: number | string;
     status?: string;
     date_created?: string;
+    path?: string;
     storageFileVersionKey?: number | string;
     file_name?: string;
     _appName?: string;
@@ -1390,11 +1412,12 @@ function displayServerHistory(
         "    " +
           pad("TIMESTAMP", 22) +
           pad("STATUS", 14) +
+          pad("PATH", 22) +
           pad("VER KEY", 12) +
           "FILE"
       )
     );
-    console.log(dim("    " + "─".repeat(80)));
+    console.log(dim("    " + "─".repeat(95)));
 
     for (const entry of entries) {
       const d = entry.date_created ? new Date(entry.date_created) : null;
@@ -1410,6 +1433,7 @@ function displayServerHistory(
           ? red("error")
           : green(entry.status || "success");
 
+      const routePath = entry.path ? dim(entry.path) : dim("-");
       const verKey =
         entry.storageFileVersionKey != null ? cyan(String(entry.storageFileVersionKey)) : dim("-");
       const fileName = entry.file_name ? dim(entry.file_name) : dim("-");
@@ -1418,6 +1442,7 @@ function displayServerHistory(
         "    " +
           pad(dim(dateStr), 22) +
           pad(statusBadge, 14) +
+          pad(routePath, 22) +
           pad(verKey, 12) +
           fileName
       );
@@ -1513,44 +1538,14 @@ async function handleRollback(
     targetEnv = await askSelect("Select environment to roll back", envKeys, defaultIdx);
   }
 
-  const envHistory = getDeploymentHistory(process.cwd(), targetEnv);
-  let selectedStorageId = targetStorageId;
-
-  if (!selectedStorageId) {
-    if (envHistory.length === 0) {
-      console.log(yellow(`\nNo deployment history found${targetEnv ? ` for environment "${targetEnv}"` : ""}.`));
-      selectedStorageId = await askText("Storage ID to roll back to (e.g. 137)");
-    } else {
-      const choices = envHistory.map((r, idx) => {
-        const d = new Date(r.timestamp);
-        const dateStr = !isNaN(d.getTime()) ? d.toLocaleString() : r.timestamp;
-        const currentTag = idx === 0 ? " (CURRENT ACTIVE BUILD)" : "";
-        return `Storage ID: ${r.storageId} - ${r.webAppName} (${dateStr})${currentTag}`;
-      });
-
-      const defaultIdx = choices.length > 1 ? 1 : 0;
-      const chosenStr = await askSelect(
-        "Select target deployment build to restore",
-        choices,
-        defaultIdx
-      );
-
-      const chosenIdx = choices.indexOf(chosenStr);
-      selectedStorageId = envHistory[chosenIdx]?.storageId;
-    }
-  }
-
-  if (!selectedStorageId) {
-    log.error("No storage ID specified for rollback.");
-    return;
-  }
-
   let user = flags.user;
   let pass = flags.password;
 
   const envConf = targetEnv && loadedConfig.environments ? loadedConfig.environments[targetEnv] : undefined;
+  const targetInstance = flags.instance || envConf?.instance || (loadedConfig.default_env && loadedConfig.environments?.[loadedConfig.default_env]?.instance);
+  const targetAppName = flags.name || envConf?.web_app_name || loadedConfig.web_app_name;
+
   if (!flags["api-key"] && !flags.token && !flags["oidc-token"] && !envConf?.api_key && !envConf?.token) {
-    const targetInstance = flags.instance || envConf?.instance || (loadedConfig.default_env && loadedConfig.environments?.[loadedConfig.default_env]?.instance);
     const authProbe = await probeAuthType(targetInstance);
 
     if (authProbe.isOidc) {
@@ -1588,6 +1583,103 @@ async function handleRollback(
         pass = await askPassword("ONE Password");
       }
     }
+  }
+
+  let selectedStorageId = targetStorageId;
+
+  // If no target storage ID was given, try querying server deployment logs (>= 1.8.0) or local history (< 1.8.0)
+  if (!selectedStorageId) {
+    let serverLogsFound = false;
+
+    if (targetInstance) {
+      try {
+        const client = new KodallNodeClient({
+          baseUrl: targetInstance,
+          apiKey: flags["api-key"] || envConf?.api_key,
+        });
+
+        // Authenticate client
+        const token = flags.token || flags["oidc-token"] || envConf?.token;
+        if (!flags["api-key"] && !envConf?.api_key) {
+          if (token) {
+            await client.auth({ accessToken: token });
+          } else if (user && pass) {
+            await client.auth({ user, password: pass });
+          }
+        }
+
+        const sessionInfo = await client.session();
+        if (!isProblem(sessionInfo) && sessionInfo.version && isVersionAtLeast(sessionInfo.version, "1.8.0")) {
+          const webAppFilter = targetAppName ? `FILTER AND (name == "${targetAppName}")` : "";
+          const logs = await client.fetch<{
+            key: number | string;
+            status?: string;
+            date_created?: string;
+            path?: string;
+            storageFileVersionKey?: number | string;
+            file_name?: string;
+          }>(`FETCH web_app_log (key, log, uuid, status, date_created, path) {
+              storage_file_version TO id_storage_file_version LINK TYPE LEFT (key AS storageFileVersionKey, file_name),
+              web_app TO id_web_app ${webAppFilter}
+          }`);
+
+          logs.sort((a, b) => Number(b.key) - Number(a.key));
+          const versionLogs = logs.filter((l) => l.storageFileVersionKey != null);
+
+          if (versionLogs.length > 0) {
+            const choices = versionLogs.map((r, idx) => {
+              const d = r.date_created ? new Date(r.date_created) : null;
+              const dateStr = d && !isNaN(d.getTime()) ? d.toLocaleString() : (r.date_created || "-");
+              const currentTag = idx === 0 ? " (CURRENT ACTIVE BUILD)" : "";
+              const pathStr = r.path ? ` [path: ${r.path}]` : "";
+              return `Version Key: ${r.storageFileVersionKey}${pathStr} - ${r.file_name || "web_app.zip"} (${dateStr})${currentTag}`;
+            });
+
+            const defaultIdx = choices.length > 1 ? 1 : 0;
+            const chosenStr = await askSelect(
+              "Select target deployment build to restore",
+              choices,
+              defaultIdx
+            );
+
+            const chosenIdx = choices.indexOf(chosenStr);
+            selectedStorageId = versionLogs[chosenIdx]?.storageFileVersionKey;
+            serverLogsFound = true;
+          }
+        }
+      } catch {
+        // Fall back to local history or prompt
+      }
+    }
+
+    if (!serverLogsFound) {
+      const envHistory = getDeploymentHistory(process.cwd(), targetEnv);
+      if (envHistory.length > 0) {
+        const choices = envHistory.map((r, idx) => {
+          const d = new Date(r.timestamp);
+          const dateStr = !isNaN(d.getTime()) ? d.toLocaleString() : r.timestamp;
+          const currentTag = idx === 0 ? " (CURRENT ACTIVE BUILD)" : "";
+          return `Storage ID: ${r.storageId} - ${r.webAppName} (${dateStr})${currentTag}`;
+        });
+
+        const defaultIdx = choices.length > 1 ? 1 : 0;
+        const chosenStr = await askSelect(
+          "Select target deployment build to restore",
+          choices,
+          defaultIdx
+        );
+
+        const chosenIdx = choices.indexOf(chosenStr);
+        selectedStorageId = envHistory[chosenIdx]?.storageId;
+      } else {
+        selectedStorageId = await askText("Storage / Version ID to roll back to (e.g. 137)");
+      }
+    }
+  }
+
+  if (!selectedStorageId) {
+    log.error("No storage ID specified for rollback.");
+    return;
   }
 
   const spinner = new Spinner("", false);

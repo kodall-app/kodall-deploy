@@ -281,11 +281,21 @@ export function resolveConfig(
   // Merge values according to precedence:
   // CLI flags > Environment Variables > Config Environment Overrides > Config Top-level Defaults
   // Instance and api_key must come from flags, env vars, or environment block (NOT root config)
-  const instance =
+  let rawInstance =
     options.instance ||
     process.env.ONE_INSTANCE ||
     process.env.KODALL_INSTANCE ||
     envOverrides.instance;
+
+  let instance = rawInstance?.trim();
+  if (instance) {
+    while (/^https?:\/\/https?:\/\//i.test(instance)) {
+      instance = instance.replace(/^https?:\/\//i, "");
+    }
+    if (instance.endsWith("/")) {
+      instance = instance.slice(0, -1);
+    }
+  }
 
   const web_app_name =
     options.webAppName ||

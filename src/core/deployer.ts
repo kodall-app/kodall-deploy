@@ -229,13 +229,12 @@ export async function deploy(
     const webAppProperties: Record<string, any> = {
       name: config.web_app_name,
       path: config.web_app_path,
+      id_storage_file: storageId,
       ...(existingKey ? { key: existingKey } : {}),
     };
 
     if (serverSupportsVersioning && storageFileVersionKey) {
       webAppProperties.id_storage_file_version = storageFileVersionKey;
-    } else {
-      webAppProperties.id_storage_file = storageId;
     }
 
     const webAppEntity = {
