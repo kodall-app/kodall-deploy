@@ -16,6 +16,9 @@
     "kodall-deploy": "./dist/cli.js",
     "one-deploy": "./dist/cli.js"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist",
     "README.md",
