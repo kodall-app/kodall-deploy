@@ -31,13 +31,20 @@
   },
   "keywords": [
     "kodall",
-    "one-framework",
     "deploy",
     "cli",
     "web-app"
   ],
-  "author": "",
+  "author": "Kodall",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kodall-app/kodall-deploy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kodall-app/kodall-deploy/issues"
+  },
+  "homepage": "https://github.com/kodall-app/kodall-deploy#readme",
   "dependencies": {
     "archiver": "^7.0.1"
   },
