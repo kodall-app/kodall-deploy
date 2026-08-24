@@ -105,9 +105,9 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("actions/setup-node@v4");
       expect(yaml).toContain("npm ci");
       expect(yaml).toContain("npm run build");
-      expect(yaml).toContain("ONE_API_KEY: ${{ secrets.ONE_API_KEY }}");
-      expect(yaml).toContain('"develop") npx kodall-one-deploy --ci -e dev ;;');
-      expect(yaml).toContain('"main") npx kodall-one-deploy --ci -e prod ;;');
+      expect(yaml).toContain("KODALL_API_KEY: ${{ secrets.KODALL_API_KEY }}");
+      expect(yaml).toContain('"develop") npx kodall-deploy --ci -e dev ;;');
+      expect(yaml).toContain('"main") npx kodall-deploy --ci -e prod ;;');
     });
 
     it("should format bun and yarn commands properly", () => {
@@ -145,10 +145,10 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("deploy-dev:");
       expect(yaml).toContain("- develop");
       expect(yaml).toContain("pnpm install --frozen-lockfile");
-      expect(yaml).toContain("npx kodall-one-deploy --ci -e dev");
+      expect(yaml).toContain("npx kodall-deploy --ci -e dev");
       expect(yaml).toContain("deploy-prod:");
       expect(yaml).toContain("- main");
-      expect(yaml).toContain("npx kodall-one-deploy --ci -e prod");
+      expect(yaml).toContain("npx kodall-deploy --ci -e prod");
     });
   });
 
@@ -164,7 +164,7 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("image: node:20");
       expect(yaml).toContain("pipelines:");
       expect(yaml).toContain("develop:");
-      expect(yaml).toContain("npx kodall-one-deploy --ci -e dev");
+      expect(yaml).toContain("npx kodall-deploy --ci -e dev");
     });
   });
 
@@ -182,11 +182,11 @@ describe("CI/CD Workflow Generator", () => {
 
       expect(jf).toContain("pipeline {");
       expect(jf).toContain("nodejs 'NodeJS 20'");
-      expect(jf).toContain("ONE_API_KEY = credentials('ONE_API_KEY')");
+      expect(jf).toContain("KODALL_API_KEY = credentials('KODALL_API_KEY')");
       expect(jf).toContain("case \"develop\":");
-      expect(jf).toContain("sh 'npx kodall-one-deploy --ci -e dev'");
+      expect(jf).toContain("sh 'npx kodall-deploy --ci -e dev'");
       expect(jf).toContain("case \"main\":");
-      expect(jf).toContain("sh 'npx kodall-one-deploy --ci -e prod'");
+      expect(jf).toContain("sh 'npx kodall-deploy --ci -e prod'");
     });
   });
 
@@ -204,7 +204,7 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("vmImage: 'ubuntu-latest'");
       expect(yaml).toContain("task: NodeTool@0");
       expect(yaml).toContain("pnpm install --frozen-lockfile");
-      expect(yaml).toContain('"main") npx kodall-one-deploy --ci -e prod ;;');
+      expect(yaml).toContain('"main") npx kodall-deploy --ci -e prod ;;');
     });
   });
 
@@ -219,7 +219,7 @@ describe("CI/CD Workflow Generator", () => {
 
       expect(yaml).toContain("version: 2.1");
       expect(yaml).toContain("image: cimg/node:20.0");
-      expect(yaml).toContain("npx kodall-one-deploy --ci -e dev");
+      expect(yaml).toContain("npx kodall-deploy --ci -e dev");
       expect(yaml).toContain("- develop");
     });
   });
@@ -235,12 +235,12 @@ describe("CI/CD Workflow Generator", () => {
 
       expect(yaml).toContain("version: 0.2");
       expect(yaml).toContain("nodejs: 20");
-      expect(yaml).toContain("npx kodall-one-deploy --ci -e staging");
+      expect(yaml).toContain("npx kodall-deploy --ci -e staging");
     });
   });
 
   describe("generateCIWorkflow", () => {
-    it("should write .github/workflows/one-deploy.yml to filesystem", () => {
+    it("should write .github/workflows/kodall-deploy.yml to filesystem", () => {
       const res = generateCIWorkflow(
         {
           provider: "github",
@@ -249,10 +249,10 @@ describe("CI/CD Workflow Generator", () => {
         tempDir
       );
 
-      expect(res.filePath).toBe(".github/workflows/one-deploy.yml");
-      expect(fs.existsSync(path.join(tempDir, ".github", "workflows", "one-deploy.yml"))).toBe(true);
-      expect(res.secrets).toContain("ONE_API_KEY");
-      expect(res.secrets).toContain("ONE_INSTANCE");
+      expect(res.filePath).toBe(".github/workflows/kodall-deploy.yml");
+      expect(fs.existsSync(path.join(tempDir, ".github", "workflows", "kodall-deploy.yml"))).toBe(true);
+      expect(res.secrets).toContain("KODALL_API_KEY");
+      expect(res.secrets).toContain("KODALL_INSTANCE");
     });
 
     it("should write .gitlab-ci.yml to filesystem", () => {

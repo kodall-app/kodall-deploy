@@ -27,6 +27,7 @@ const DEFAULT_SOURCE_EXTENSIONS = new Set([
 const IGNORED_DIRECTORIES = new Set([
   "node_modules",
   ".git",
+  ".kodall-deploy",
   ".one-deploy",
   ".next",
   ".nuxt",
@@ -47,6 +48,7 @@ const IGNORED_FILES = new Set([
   "bun.lockb",
   "kodall-webapp.config.json",
   "config_web_app.json",
+  ".kodall-deploy-history.json",
   ".one-deploy-history.json",
 ]);
 

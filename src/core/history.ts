@@ -2,15 +2,21 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DeploymentRecord } from "./types.js";
 
-export const DEFAULT_HISTORY_DIR = ".one-deploy";
+export const DEFAULT_HISTORY_DIR = ".kodall-deploy";
+export const LEGACY_HISTORY_DIR = ".one-deploy";
 export const DEFAULT_HISTORY_FILENAME = "history.json";
-export const LEGACY_HISTORY_FILENAME = ".one-deploy-history.json";
+export const LEGACY_HISTORY_FILENAME = ".kodall-deploy-history.json";
+export const OLD_LEGACY_HISTORY_FILENAME = ".one-deploy-history.json";
 
 /**
- * Resolve absolute path to the local .one-deploy directory
+ * Resolve absolute path to the local history directory
  */
 export function getHistoryDir(cwd: string = process.cwd()): string {
-  return path.resolve(cwd, DEFAULT_HISTORY_DIR);
+  const primary = path.resolve(cwd, DEFAULT_HISTORY_DIR);
+  if (!fs.existsSync(primary) && fs.existsSync(path.resolve(cwd, LEGACY_HISTORY_DIR))) {
+    return path.resolve(cwd, LEGACY_HISTORY_DIR);
+  }
+  return primary;
 }
 
 /**
@@ -21,7 +27,7 @@ export function getHistoryFilePath(cwd: string = process.cwd()): string {
 }
 
 /**
- * Ensure .one-deploy/ is added to the project's .gitignore file
+ * Ensure .kodall-deploy/ is added to the project's .gitignore file
  */
 export function ensureGitIgnoreEntry(cwd: string = process.cwd()): void {
   const gitignorePath = path.resolve(cwd, ".gitignore");
@@ -33,14 +39,16 @@ export function ensureGitIgnoreEntry(cwd: string = process.cwd()): void {
     const lines = content.split(/\r?\n/);
     const hasEntry = lines.some(
       (l) =>
+        l.trim() === ".kodall-deploy" ||
+        l.trim() === ".kodall-deploy/" ||
+        l.trim() === "/.kodall-deploy" ||
+        l.trim() === "/.kodall-deploy/" ||
         l.trim() === ".one-deploy" ||
-        l.trim() === ".one-deploy/" ||
-        l.trim() === "/.one-deploy" ||
-        l.trim() === "/.one-deploy/"
+        l.trim() === ".one-deploy/"
     );
 
     if (!hasEntry) {
-      const entry = "\n# ONE Framework / Kodall deploy state\n.one-deploy/\n";
+      const entry = "\n# Kodall deploy state\n.kodall-deploy/\n.one-deploy/\n";
       const newContent = content.endsWith("\n") ? `${content}${entry}` : `${content}\n${entry}`;
       fs.writeFileSync(gitignorePath, newContent, "utf-8");
     }
@@ -50,16 +58,21 @@ export function ensureGitIgnoreEntry(cwd: string = process.cwd()): void {
 }
 
 /**
- * Read all historical deployment records from .one-deploy/history.json (with legacy fallback)
+ * Read all historical deployment records from .kodall-deploy/history.json (with legacy fallback)
  */
 export function readDeploymentHistory(cwd: string = process.cwd()): DeploymentRecord[] {
   const filePath = getHistoryFilePath(cwd);
   const legacyFilePath = path.resolve(cwd, LEGACY_HISTORY_FILENAME);
+  const oldLegacyFilePath = path.resolve(cwd, OLD_LEGACY_HISTORY_FILENAME);
 
   let targetPath = filePath;
 
-  if (!fs.existsSync(filePath) && fs.existsSync(legacyFilePath)) {
-    targetPath = legacyFilePath;
+  if (!fs.existsSync(filePath)) {
+    if (fs.existsSync(legacyFilePath)) {
+      targetPath = legacyFilePath;
+    } else if (fs.existsSync(oldLegacyFilePath)) {
+      targetPath = oldLegacyFilePath;
+    }
   }
 
   if (!fs.existsSync(targetPath)) {
@@ -103,9 +116,17 @@ export function recordDeployment(record: DeploymentRecord, cwd: string = process
 
   // Clean up legacy root file if it exists
   const legacyFilePath = path.resolve(cwd, LEGACY_HISTORY_FILENAME);
+  const oldLegacyFilePath = path.resolve(cwd, OLD_LEGACY_HISTORY_FILENAME);
   if (fs.existsSync(legacyFilePath)) {
     try {
       fs.unlinkSync(legacyFilePath);
+    } catch {
+      // Ignore
+    }
+  }
+  if (fs.existsSync(oldLegacyFilePath)) {
+    try {
+      fs.unlinkSync(oldLegacyFilePath);
     } catch {
       // Ignore
     }

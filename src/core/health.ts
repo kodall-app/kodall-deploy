@@ -17,7 +17,7 @@ export async function checkEndpointHealth(
       signal: controller.signal,
       headers: {
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "User-Agent": "kodall-one-deploy/health-check",
+        "User-Agent": "kodall-deploy/health-check",
       },
     });
 

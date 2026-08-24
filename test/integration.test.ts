@@ -227,7 +227,7 @@ describe("Full Integration Test (Real HTTP Server + CLI)", () => {
     );
 
     expect(stderr).toBe("");
-    expect(stdout).toContain("ONE Framework / Kodall Deployer");
+    expect(stdout).toContain("Kodall Deployer");
     expect(stdout).toContain("Deployment successful!");
   });
 });

@@ -1,7 +1,7 @@
 {
-  "name": "kodall-one-deploy",
+  "name": "kodall-deploy",
   "version": "1.2.0",
-  "description": "CLI tool and library to deploy web applications to ONE Framework / Kodall instances",
+  "description": "CLI tool and library to deploy web applications to Kodall instances",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,8 +13,8 @@
     }
   },
   "bin": {
-    "one-deploy": "./dist/cli.js",
-    "kodall-deploy": "./dist/cli.js"
+    "kodall-deploy": "./dist/cli.js",
+    "one-deploy": "./dist/cli.js"
   },
   "files": [
     "dist",

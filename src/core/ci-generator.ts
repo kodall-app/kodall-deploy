@@ -88,10 +88,10 @@ export function generateGitHubActionsWorkflow(options: CIWorkflowOptions): strin
   const branches = Array.from(new Set(options.mappings.map((m) => m.branch)));
   const installCmd = getInstallCommand(pm);
   const buildCmd = getBuildCommand(pm);
-  const title = options.workflowName || "Deploy to ONE Framework";
+  const title = options.workflowName || "Deploy to Kodall";
 
   const branchCases = options.mappings
-    .map((m) => `          "${m.branch}") npx kodall-one-deploy --ci -e ${m.envName} ;;`)
+    .map((m) => `          "${m.branch}") npx kodall-deploy --ci -e ${m.envName} ;;`)
     .join("\n");
 
   return `name: ${title}
@@ -120,10 +120,10 @@ jobs:
       - name: Build web application
         run: ${buildCmd}
 
-      - name: Deploy to ONE Framework / Kodall
+      - name: Deploy to Kodall
         env:
-          ONE_API_KEY: \${{ secrets.ONE_API_KEY }}
-          ONE_INSTANCE: \${{ secrets.ONE_INSTANCE }}
+          KODALL_API_KEY: \${{ secrets.KODALL_API_KEY }}
+          KODALL_INSTANCE: \${{ secrets.KODALL_INSTANCE }}
         run: |
           case "\${{ github.ref_name }}" in
 ${branchCases}
@@ -149,10 +149,10 @@ export function generateGitLabCIWorkflow(options: CIWorkflowOptions): string {
   script:
     - ${installCmd}
     - ${buildCmd}
-    - npx kodall-one-deploy --ci -e ${m.envName}
+    - npx kodall-deploy --ci -e ${m.envName}
   variables:
-    ONE_API_KEY: $ONE_API_KEY
-    ONE_INSTANCE: $ONE_INSTANCE
+    KODALL_API_KEY: $KODALL_API_KEY
+    KODALL_INSTANCE: $KODALL_INSTANCE
 `;
   });
 
@@ -181,7 +181,7 @@ export function generateBitbucketPipelinesWorkflow(options: CIWorkflowOptions): 
           script:
             - ${installCmd}
             - ${buildCmd}
-            - npx kodall-one-deploy --ci -e ${m.envName}`;
+            - npx kodall-deploy --ci -e ${m.envName}`;
   });
 
   return `image: node:${nodeVersion}
@@ -204,7 +204,7 @@ export function generateJenkinsfileWorkflow(options: CIWorkflowOptions): string 
   const branchCases = options.mappings
     .map(
       (m) => `                        case "${m.branch}":
-                            sh 'npx kodall-one-deploy --ci -e ${m.envName}'
+                            sh 'npx kodall-deploy --ci -e ${m.envName}'
                             break`
     )
     .join("\n");
@@ -217,7 +217,7 @@ export function generateJenkinsfileWorkflow(options: CIWorkflowOptions): string 
     }
 
     environment {
-        ONE_API_KEY = credentials('ONE_API_KEY')
+        KODALL_API_KEY = credentials('KODALL_API_KEY')
     }
 
     stages {
@@ -234,7 +234,7 @@ export function generateJenkinsfileWorkflow(options: CIWorkflowOptions): string 
             }
         }
 
-        stage('Deploy to ONE Framework') {
+        stage('Deploy to Kodall') {
             steps {
                 script {
                     def targetBranch = env.BRANCH_NAME ?: env.GIT_BRANCH?.replaceAll('^origin/', '')
@@ -263,7 +263,7 @@ export function generateAzureDevOpsWorkflow(options: CIWorkflowOptions): string 
   const buildCmd = getBuildCommand(pm);
 
   const branchCases = options.mappings
-    .map((m) => `          "${m.branch}") npx kodall-one-deploy --ci -e ${m.envName} ;;`)
+    .map((m) => `          "${m.branch}") npx kodall-deploy --ci -e ${m.envName} ;;`)
     .join("\n");
 
   return `trigger:
@@ -275,7 +275,7 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  - group: ONE_DEPLOY_SECRETS
+  - group: KODALL_DEPLOY_SECRETS
 
 steps:
   - task: NodeTool@0
@@ -296,10 +296,10 @@ steps:
 ${branchCases}
         *) echo "No deployment mapping for branch $(Build.SourceBranchName)" && exit 1 ;;
       esac
-    displayName: 'Deploy to ONE Framework'
+    displayName: 'Deploy to Kodall'
     env:
-      ONE_API_KEY: $(ONE_API_KEY)
-      ONE_INSTANCE: $(ONE_INSTANCE)
+      KODALL_API_KEY: $(KODALL_API_KEY)
+      KODALL_INSTANCE: $(KODALL_INSTANCE)
 `;
 }
 
@@ -314,7 +314,7 @@ export function generateCircleCIWorkflow(options: CIWorkflowOptions): string {
   const buildCmd = getBuildCommand(pm);
 
   const branchCases = options.mappings
-    .map((m) => `              "${m.branch}") npx kodall-one-deploy --ci -e ${m.envName} ;;`)
+    .map((m) => `              "${m.branch}") npx kodall-deploy --ci -e ${m.envName} ;;`)
     .join("\n");
 
   return `version: 2.1
@@ -337,7 +337,7 @@ jobs:
           name: Build Application
           command: ${buildCmd}
       - run:
-          name: Deploy to ONE Framework
+          name: Deploy to Kodall
           command: |
             case "$CIRCLE_BRANCH" in
 ${branchCases}
@@ -366,14 +366,14 @@ export function generateAWSCodeBuildWorkflow(options: CIWorkflowOptions): string
   const buildCmd = getBuildCommand(pm);
 
   const branchCases = options.mappings
-    .map((m) => `          "${m.branch}") npx kodall-one-deploy --ci -e ${m.envName} ;;`)
+    .map((m) => `          "${m.branch}") npx kodall-deploy --ci -e ${m.envName} ;;`)
     .join("\n");
 
   return `version: 0.2
 
 env:
   secrets-manager:
-    ONE_API_KEY: "one-deploy/credentials:ONE_API_KEY"
+    KODALL_API_KEY: "kodall-deploy/credentials:KODALL_API_KEY"
 
 phases:
   install:
@@ -416,7 +416,7 @@ export function generateCIWorkflow(
 
   switch (options.provider) {
     case "github":
-      relativePath = path.join(".github", "workflows", "one-deploy.yml");
+      relativePath = path.join(".github", "workflows", "kodall-deploy.yml");
       content = generateGitHubActionsWorkflow(optsWithDefaults);
       break;
     case "gitlab":
@@ -456,7 +456,7 @@ export function generateCIWorkflow(
 
   fs.writeFileSync(fullPath, content, "utf-8");
 
-  const secrets = ["ONE_API_KEY", "ONE_INSTANCE"];
+  const secrets = ["KODALL_API_KEY", "KODALL_INSTANCE"];
 
   return {
     provider: options.provider,

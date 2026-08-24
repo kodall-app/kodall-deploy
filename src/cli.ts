@@ -44,23 +44,24 @@ import { askConfirm, askPassword, askSelect, askText } from "./ui/prompts.js";
 const VERSION = "1.2.0";
 
 const HELP_TEXT = `
-${bold("kodall-one-deploy")} ${dim(`v${VERSION}`)}
-Deploy web applications to ONE Framework / Kodall instances.
+${bold("kodall-deploy")} ${dim(`v${VERSION}`)}
+Deploy web applications to Kodall instances.
 
 ${bold("USAGE:")}
+  $ kodall-deploy [options]
   $ one-deploy [options]
-  $ npx kodall-one-deploy [options]
+  $ npx kodall-deploy [options]
 
 ${bold("OPTIONS:")}
   -e, --env <name>          Target environment(s) (e.g., dev, prod, or comma-separated "dev,staging")
   -t, --type <type>         Deploy all environments of given type (e.g., dev, staging, prod)
       --all                 Deploy to ALL configured environments sequentially
   -i, --instance <url>      Instance base URL (e.g., https://app.domain.com)
-  -n, --name <name>         WebApp name in ONE Framework
+  -n, --name <name>         WebApp name in Kodall
   -p, --path <path>         URL path where web app is served
   -d, --dist <dir>          Path to build directory containing index.html [default: ./dist]
-  -u, --user <username>     ONE Framework login username
-  -P, --password <password> ONE Framework login password
+  -u, --user <username>     Kodall login username
+  -P, --password <password> Kodall login password
   -k, --api-key <key>       API key authentication (bypasses username/password)
       --token <token>       OAuth / OpenID Connect access token (bypasses username/password)
   -O, --otp <code>          One-Time Password / 2FA code for authentication
@@ -86,28 +87,28 @@ ${bold("OPTIONS:")}
   -h, --help                Display this help message
 
 ${bold("ENVIRONMENT VARIABLES:")}
-  ONE_ENV, KODALL_ENV               Target environment name
-  ONE_INSTANCE, KODALL_INSTANCE     Instance URL
-  ONE_APP_NAME, KODALL_APP_NAME     WebApp name
-  ONE_APP_PATH, KODALL_APP_PATH     WebApp URL path
-  ONE_DIST_PATH, KODALL_DIST_PATH   Build directory path
-  ONE_USERNAME, ONE_USER            Login username
-  ONE_PASSWORD                      Login password
-  ONE_API_KEY, KODALL_API_KEY       API key
-  ONE_TOKEN, KODALL_TOKEN           OAuth / OpenID Connect access token
-  ONE_OTP, KODALL_OTP               One-Time Password (OTP / 2FA)
-  ONE_CLIENT_ID, KODALL_CLIENT_ID   OAuth Client ID
+  KODALL_ENV, ONE_ENV               Target environment name
+  KODALL_INSTANCE, ONE_INSTANCE     Instance URL
+  KODALL_APP_NAME, ONE_APP_NAME     WebApp name
+  KODALL_APP_PATH, ONE_APP_PATH     WebApp URL path
+  KODALL_DIST_PATH, ONE_DIST_PATH   Build directory path
+  KODALL_USERNAME, ONE_USERNAME     Login username
+  KODALL_PASSWORD, ONE_PASSWORD     Login password
+  KODALL_API_KEY, ONE_API_KEY       API key
+  KODALL_TOKEN, ONE_TOKEN           OAuth / OpenID Connect access token
+  KODALL_OTP, ONE_OTP               One-Time Password (OTP / 2FA)
+  KODALL_CLIENT_ID, ONE_CLIENT_ID   OAuth Client ID
 
 ${bold("EXAMPLES:")}
-  $ one-deploy                      # Interactive deployment menu
-  $ one-deploy -e prod              # Deploy to production environment
-  $ one-deploy --type prod          # Deploy to ALL production environments (e.g. prod-us, prod-eu)
-  $ one-deploy --all                # Deploy to all configured environments
-  $ one-deploy -H -e prod           # View deployment history for production
-  $ one-deploy --rollback -e prod   # Interactively roll back prod to a previous build
-  $ one-deploy --rollback 137       # Roll back directly to storage ID 137
-  $ one-deploy -e staging --dry-run # Validate and test staging deployment
-  $ one-deploy --ci -u admin -P secret # Non-interactive CI deployment
+  $ kodall-deploy                   # Interactive deployment menu
+  $ kodall-deploy -e prod           # Deploy to production environment
+  $ kodall-deploy --type prod       # Deploy to ALL production environments (e.g. prod-us, prod-eu)
+  $ kodall-deploy --all             # Deploy to all configured environments
+  $ kodall-deploy -H -e prod        # View deployment history for production
+  $ kodall-deploy --rollback -e prod # Interactively roll back prod to a previous build
+  $ kodall-deploy --rollback 137    # Roll back directly to storage ID 137
+  $ kodall-deploy -e staging --dry-run # Validate and test staging deployment
+  $ kodall-deploy --ci -u admin -P secret # Non-interactive CI deployment
 `;
 
 async function probeAuthType(
@@ -349,7 +350,7 @@ async function main() {
     }
   }
 
-  console.log(`\n${bold(cyan("▶"))} ${bold("ONE Framework / Kodall Deployer")} ${dim(`v${VERSION}`)}\n`);
+  console.log(`\n${bold(cyan("▶"))} ${bold("Kodall Deployer")} ${dim(`v${VERSION}`)}\n`);
 
   // Handle --list-envs command
   if (flags["list-envs"] || explicitListEnvs) {
@@ -524,7 +525,7 @@ async function main() {
         } else if (mode === "Custom one-off deployment") {
           console.log(dim("\nEnter custom deployment parameters:\n"));
           const detected = detectFramework(process.cwd());
-          const customInstance = await askText("ONE Framework Instance URL (e.g. https://instance.domain.com)");
+          const customInstance = await askText("Kodall Instance URL (e.g. https://instance.domain.com)");
           const customName = await askText("WebApp Name", loadedConfig.web_app_name || detected.appName || "my-app");
           const defaultPath = loadedConfig.web_app_path || (customName.startsWith("/") ? customName : `/${customName}`);
           const customPath = await askText("WebApp Path (URL route)", defaultPath);
@@ -646,12 +647,12 @@ async function main() {
       });
 
       if (needsNativeAuth && (!batchUser || !batchPass)) {
-        console.log(dim("\nEnter credentials for native ONE Framework environments:"));
+        console.log(dim("\nEnter credentials for Kodall environments:"));
         if (!batchUser) {
-          batchUser = await askText("ONE Username", process.env.USER || process.env.USERNAME);
+          batchUser = await askText("Kodall Username", process.env.USER || process.env.USERNAME);
         }
         if (!batchPass) {
-          batchPass = await askPassword("ONE Password");
+          batchPass = await askPassword("Kodall Password");
         }
       }
     }
@@ -777,7 +778,7 @@ async function main() {
     }
 
     if (!deployOpts.instance && !configState.resolved.instance) {
-      deployOpts.instance = await askText("ONE Framework Instance URL (e.g. https://instance.domain.com)");
+      deployOpts.instance = await askText("Kodall Instance URL (e.g. https://instance.domain.com)");
       promptedAny = true;
     }
 
@@ -846,13 +847,13 @@ async function main() {
         }
       } else {
         console.log(
-          `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${green("ONE Framework Basic Login")}`
+          `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${green("Kodall Basic Login")}`
         );
         if (!deployOpts.username && !configState.resolved.username) {
-          deployOpts.username = await askText("ONE Username", process.env.USER || process.env.USERNAME);
+          deployOpts.username = await askText("Kodall Username", process.env.USER || process.env.USERNAME);
         }
         if (!deployOpts.password && !configState.resolved.password) {
-          deployOpts.password = await askPassword("ONE Password");
+          deployOpts.password = await askPassword("Kodall Password");
         }
       }
     }
@@ -949,7 +950,7 @@ async function handleInit(configPath: string) {
     }
   }
 
-  console.log(bold("Initialize ONE Deploy Configuration:\n"));
+  console.log(bold("Initialize Kodall Deploy Configuration:\n"));
 
   const detected = detectFramework(process.cwd());
   console.log(
@@ -1312,8 +1313,8 @@ async function displayHistoryForEnv(configPath: string, env: string | undefined,
               if (isProblem(authRes)) continue;
             }
           } else {
-            const user = await askText("ONE Username", process.env.USER || process.env.USERNAME);
-            const pass = await askPassword("ONE Password");
+            const user = await askText("Kodall Username", process.env.USER || process.env.USERNAME);
+            const pass = await askPassword("Kodall Password");
             const authRes = await client.auth({ user, password: pass });
             if (isProblem(authRes)) continue;
           }
@@ -1574,13 +1575,13 @@ async function handleRollback(
       }
     } else {
       console.log(
-        `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${green("ONE Framework Basic Login")}`
+        `\n  ${cyan("ℹ")} ${bold("Authentication Mode:")} ${green("Kodall Basic Login")}`
       );
       if (!user) {
-        user = await askText("ONE Username", process.env.USER || process.env.USERNAME);
+        user = await askText("Kodall Username", process.env.USER || process.env.USERNAME);
       }
       if (!pass) {
-        pass = await askPassword("ONE Password");
+        pass = await askPassword("Kodall Password");
       }
     }
   }
@@ -1725,7 +1726,7 @@ async function handleRollback(
 
 function displayEnvsTable(envs: EnvironmentInfo[]): void {
   if (envs.length === 0) {
-    console.log(yellow("\nNo environments configured. Run 'one-deploy --init' or '--add-env' to add one.\n"));
+    console.log(yellow("\nNo environments configured. Run 'kodall-deploy --init' or '--add-env' to add one.\n"));
     return;
   }
 
@@ -2018,7 +2019,7 @@ async function handleInitCI(configPath: string) {
   }
 
   const allProviders: Array<{ id: CIProvider; label: string }> = [
-    { id: "github", label: "GitHub Actions (.github/workflows/one-deploy.yml)" },
+    { id: "github", label: "GitHub Actions (.github/workflows/kodall-deploy.yml)" },
     { id: "gitlab", label: "GitLab CI (.gitlab-ci.yml)" },
     { id: "bitbucket", label: "Bitbucket Pipelines (bitbucket-pipelines.yml)" },
     { id: "jenkins", label: "Jenkins (Jenkinsfile)" },
@@ -2057,7 +2058,7 @@ async function handleInitCI(configPath: string) {
   const envKeys = config.environments ? Object.keys(config.environments) : [];
 
   if (!fileExists || envKeys.length === 0) {
-    log.error(`No environments found in ${configPath}. Please run "one-deploy --init" first.`);
+    log.error(`No environments found in ${configPath}. Please run "kodall-deploy --init" first.`);
     return;
   }
 
@@ -2112,12 +2113,12 @@ async function handleInitCI(configPath: string) {
   console.log("");
   console.log(bold(cyan("🔑 Required CI/CD Repository Secrets:")));
   console.log(dim("  Configure these environment variables / secrets in your repository settings:"));
-  console.log(`    ${cyan("▸")} ${bold("ONE_API_KEY")}:   Your ONE Framework / Kodall API authentication key`);
+  console.log(`    ${cyan("▸")} ${bold("KODALL_API_KEY")}:   Your Kodall API authentication key (or ONE_API_KEY)`);
   const sampleInstance =
     (config.default_env && config.environments?.[config.default_env]?.instance) ||
     (config.environments && Object.values(config.environments)[0]?.instance) ||
     "https://instance.kodall.ro";
-  console.log(`    ${cyan("▸")} ${bold("ONE_INSTANCE")}: Base instance URL (e.g. ${sampleInstance})`);
+  console.log(`    ${cyan("▸")} ${bold("KODALL_INSTANCE")}: Base instance URL (e.g. ${sampleInstance}) (or ONE_INSTANCE)`);
   console.log("");
 }
 

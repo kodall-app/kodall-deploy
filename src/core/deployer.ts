@@ -7,7 +7,7 @@ import { DeployOptions, DeployResult, ResolvedConfig } from "./types.js";
 import { isVersionAtLeast } from "./version.js";
 
 /**
- * Execute deployment to ONE Framework / Kodall instance
+ * Execute deployment to Kodall instance
  */
 export async function deploy(
   options: DeployOptions = {},

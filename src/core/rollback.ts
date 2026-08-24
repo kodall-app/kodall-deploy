@@ -6,7 +6,7 @@ import type { RollbackOptions, RollbackResult } from "./types.js";
 import { isVersionAtLeast } from "./version.js";
 
 /**
- * Roll back a ONE Framework web application to a previous storage archive
+ * Roll back a Kodall web application to a previous storage archive
  */
 export async function rollback(
   options: RollbackOptions,
