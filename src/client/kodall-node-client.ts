@@ -439,9 +439,10 @@ export class KodallNodeClient {
    */
   public async uploadFile(
     fileBuffer: Buffer | Uint8Array,
-    fileName = "web_app.zip"
+    fileName = "web_app.zip",
+    storageKey?: number | string
   ): Promise<StorageResponse | Validation | Problem> {
-    const url = `${this.baseUrl}/storage`;
+    const url = storageKey ? `${this.baseUrl}/storage/${storageKey}` : `${this.baseUrl}/storage`;
 
     const blob = new Blob([fileBuffer], { type: "application/zip" });
     const formData = new FormData();
@@ -466,5 +467,22 @@ export class KodallNodeClient {
     }
 
     return result;
+  }
+
+  /**
+   * Fetch the latest storage_file_version for a given storage file ID.
+   * Server returns versions ORDER BY version DESC → results[0] is the newest.
+   * Returns null if not found or query fails.
+   */
+  public async fetchLatestStorageFileVersion(
+    storageId: number | string
+  ): Promise<{ key: number | string; file_name?: string } | null> {
+    try {
+      const query = `FETCH storage_file_version(key, file_name) FILTER AND (id_storage_file == ${storageId})`;
+      const results = await this.fetch<{ key: number | string; file_name?: string }>(query);
+      return results?.[0] ?? null; // [0] = newest (server returns DESC by version)
+    } catch {
+      return null;
+    }
   }
 }

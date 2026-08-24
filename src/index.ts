@@ -55,6 +55,7 @@ export {
   detectExistingCIProvider,
 } from "./core/ci-generator.js";
 export { detectFramework, sanitizeProjectName } from "./core/detector.js";
+export { isVersionAtLeast, parseVersion } from "./core/version.js";
 export * from "./core/types.js";
 export * from "./client/types.js";
 

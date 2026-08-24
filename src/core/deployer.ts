@@ -4,6 +4,7 @@ import { createArchive } from "./archiver.js";
 import { resolveConfig, validateDistDirectory } from "./config.js";
 import { recordDeployment } from "./history.js";
 import { DeployOptions, DeployResult, ResolvedConfig } from "./types.js";
+import { isVersionAtLeast } from "./version.js";
 
 /**
  * Execute deployment to ONE Framework / Kodall instance
@@ -55,6 +56,17 @@ export async function deploy(
     apiKey: config.api_key,
   });
 
+  // Check server version capabilities (works unauthenticated)
+  let serverSupportsVersioning = false;
+  try {
+    const sessionInfo = await client.session();
+    if (!isProblem(sessionInfo) && sessionInfo.version) {
+      serverSupportsVersioning = isVersionAtLeast(sessionInfo.version, "1.8.0");
+    }
+  } catch {
+    // Non-fatal; fall back to legacy flow
+  }
+
   try {
     // 4. Authenticate
     if (config.api_key) {
@@ -95,9 +107,22 @@ export async function deploy(
       `Checking for existing entity (name="${config.web_app_name}", path="${config.web_app_path}")...`
     );
     let existingKey: number | string | undefined;
+    let existingStorageId: number | string | undefined;
     try {
-      const query = `FETCH web_app(key, name, path)`;
-      const queryData = await client.fetch<{ key: number | string; name?: string; path?: string }>(query);
+      const query = serverSupportsVersioning
+        ? `FETCH web_app(key, name, path, id_storage_file_version) {
+            storage_file_version TO id_storage_file_version LINK TYPE LEFT (id_storage_file)
+          }`
+        : `FETCH web_app(key, name, path, id_storage_file)`;
+      const queryData = await client.fetch<{
+        key: number | string;
+        name?: string;
+        path?: string;
+        id_storage_file?: number | string;
+        id_storage_file_version?: number | string;
+        storage_file_version?: { id_storage_file?: number | string };
+      }>(query);
+
       if (Array.isArray(queryData) && queryData.length > 0) {
         // Find existing app by matching unique path or name, or fallback to single result key
         const match = queryData.find(
@@ -107,9 +132,44 @@ export async function deploy(
             (!item.path && !item.name && queryData.length === 1)
         );
         existingKey = match?.key;
+        existingStorageId =
+          match?.id_storage_file ??
+          match?.storage_file_version?.id_storage_file;
+
+        // If storage file ID is still missing but we have a version key, query storage_file_version
+        if (!existingStorageId && match?.id_storage_file_version) {
+          try {
+            const sfvList = await client.fetch<{ id_storage_file?: number | string }>(
+              `FETCH storage_file_version(id_storage_file) FILTER AND (key == ${match.id_storage_file_version})`
+            );
+            if (sfvList?.[0]?.id_storage_file) {
+              existingStorageId = sfvList[0].id_storage_file;
+            }
+          } catch {
+            // Non-fatal
+          }
+        }
       }
     } catch {
-      existingKey = undefined;
+      try {
+        const fallbackData = await client.fetch<{
+          key: number | string;
+          name?: string;
+          path?: string;
+          id_storage_file?: number | string;
+        }>("FETCH web_app(key, name, path, id_storage_file)");
+        const match = fallbackData.find(
+          (item) =>
+            item.path === config.web_app_path ||
+            item.name === config.web_app_name ||
+            (!item.path && !item.name && fallbackData.length === 1)
+        );
+        existingKey = match?.key;
+        existingStorageId = match?.id_storage_file;
+      } catch {
+        existingKey = undefined;
+        existingStorageId = undefined;
+      }
     }
 
     if (options.dryRun) {
@@ -135,7 +195,8 @@ export async function deploy(
     );
     const storageRes = await client.uploadFile(
       archive.archiveBuffer,
-      "web_app.zip"
+      "web_app.zip",
+      existingStorageId
     );
 
     if (isValidation(storageRes)) {
@@ -151,18 +212,35 @@ export async function deploy(
     const storageId = storageRes[0].id;
     notify("upload", "success", `Archive uploaded (Storage ID: ${storageId}).`);
 
-    // 7. Create or Update WebApp entity
+    // 7. Fetch storage_file_version (>= 1.8.0 only)
+    let storageFileVersionKey: number | string | undefined;
+    if (serverSupportsVersioning) {
+      const sfv = await client.fetchLatestStorageFileVersion(storageId);
+      storageFileVersionKey = sfv?.key;
+      if (storageFileVersionKey) {
+        notify("upload", "info", `Storage file version key: ${storageFileVersionKey} (${sfv?.file_name ?? "web_app.zip"}).`);
+      }
+    }
+
+    // 8. Create or Update WebApp entity
     let action: "created" | "updated" = "created";
     let finalKey: number | string;
 
+    const webAppProperties: Record<string, any> = {
+      name: config.web_app_name,
+      path: config.web_app_path,
+      ...(existingKey ? { key: existingKey } : {}),
+    };
+
+    if (serverSupportsVersioning && storageFileVersionKey) {
+      webAppProperties.id_storage_file_version = storageFileVersionKey;
+    } else {
+      webAppProperties.id_storage_file = storageId;
+    }
+
     const webAppEntity = {
       entity_name: "web_app",
-      properties: {
-        name: config.web_app_name,
-        path: config.web_app_path,
-        id_storage_file: storageId,
-        ...(existingKey ? { key: existingKey } : {}),
-      },
+      properties: webAppProperties,
     };
 
     if (existingKey) {
@@ -223,26 +301,29 @@ export async function deploy(
 
     const durationMs = Date.now() - startTime;
 
-    // Record deployment event in history
-    try {
-      recordDeployment(
-        {
-          id: `dep_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          timestamp: new Date().toISOString(),
-          env: targetEnv || config.env || "default",
-          instance: config.instance,
-          entityKey: finalKey,
-          storageId,
-          webAppName: config.web_app_name,
-          webAppPath: config.web_app_path,
-          action,
-          username: config.username || (config.api_key ? "api_key" : undefined),
-          durationMs,
-        },
-        cwd
-      );
-    } catch {
-      // Non-fatal if history writing fails
+    // Record deployment event in local history (legacy servers only)
+    // On >= 1.8.0, the server writes web_app_log automatically
+    if (!serverSupportsVersioning) {
+      try {
+        recordDeployment(
+          {
+            id: `dep_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            timestamp: new Date().toISOString(),
+            env: targetEnv || config.env || "default",
+            instance: config.instance,
+            entityKey: finalKey,
+            storageId,
+            webAppName: config.web_app_name,
+            webAppPath: config.web_app_path,
+            action,
+            username: config.username || (config.api_key ? "api_key" : undefined),
+            durationMs,
+          },
+          cwd
+        );
+      } catch {
+        // Non-fatal if history writing fails
+      }
     }
 
     return {
