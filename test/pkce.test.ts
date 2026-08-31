@@ -7,7 +7,15 @@ import {
   openUrlInBrowser,
 } from "../src/client/pkce-auth.js";
 import { KodallNodeClient } from "../src/client/kodall-node-client.js";
-import { isProblem } from "../src/client/types.js";
+import * as childProcess from "node:child_process";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    execFile: vi.fn(),
+  };
+});
 
 describe("PKCE Browser OAuth Login", () => {
   const originalFetch = globalThis.fetch;
@@ -34,6 +42,7 @@ describe("PKCE Browser OAuth Login", () => {
 
   it("should openUrlInBrowser without throwing across platforms", () => {
     expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
+    expect(childProcess.execFile).toHaveBeenCalled();
   });
 
   it("should start local loopback server, capture authorization code, and exchange tokens", async () => {

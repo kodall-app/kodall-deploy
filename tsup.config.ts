@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     cli: "src/cli.ts",
+    "plugin/vite": "src/plugin/vite.ts",
   },
   format: ["esm", "cjs"],
   dts: true,

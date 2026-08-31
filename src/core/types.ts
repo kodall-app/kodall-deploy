@@ -11,6 +11,7 @@ export interface EnvironmentConfig {
   token?: string;
   otp?: string;
   client_id?: string;
+  proxy_paths?: string[];
 }
 
 /**
@@ -22,6 +23,7 @@ export interface WebAppConfigFile {
   web_app_path?: string;
   dist_path?: string;
   default_env?: string;
+  proxy_paths?: string[];
   environments?: Record<string, EnvironmentConfig>;
 }
 
@@ -40,6 +42,30 @@ export interface ResolvedConfig {
   username?: string;
   password?: string;
   env?: string;
+}
+
+/**
+ * Options for resolving proxy configuration
+ */
+export interface ProxyOptions {
+  cwd?: string;
+  env?: string;
+  instance?: string;
+  configPath?: string;
+  proxyPaths?: string[];
+  changeOrigin?: boolean;
+  secure?: boolean;
+}
+
+/**
+ * Resolved proxy configuration
+ */
+export interface ResolvedProxyConfig {
+  instanceUrl: string;
+  envName?: string;
+  proxyPaths: string[];
+  changeOrigin: boolean;
+  secure: boolean;
 }
 
 /**

@@ -56,6 +56,24 @@ export {
 } from "./core/ci-generator.js";
 export { detectFramework, sanitizeProjectName } from "./core/detector.js";
 export { isVersionAtLeast, parseVersion } from "./core/version.js";
+export {
+  resolveProxyConfig,
+  matchesProxyPath,
+  normalizePath,
+  normalizeUrl,
+  DEFAULT_PROXY_PATHS,
+} from "./core/proxy-resolver.js";
+export {
+  getDevProxy,
+  getViteProxy,
+  getNitroProxy,
+  kodallProxyNuxt,
+  getNextRewrites,
+  getAngularProxy,
+  type HttpProxyRule,
+  type NextRewriteRule,
+} from "./core/proxy-helpers.js";
+export { kodallProxy } from "./plugin/vite.js";
 export * from "./core/types.js";
 export * from "./client/types.js";
 

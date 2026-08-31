@@ -45,12 +45,16 @@ const VERSION = "1.2.1";
 
 const HELP_TEXT = `
 ${bold("kodall-deploy")} ${dim(`v${VERSION}`)}
-Deploy web applications to Kodall instances.
+Deploy web applications to Kodall instances and manage local dev proxies.
 
 ${bold("USAGE:")}
-  $ kodall-deploy [options]
-  $ one-deploy [options]
-  $ npx kodall-deploy [options]
+  $ kodall-deploy [command] [options]
+  $ one-deploy [command] [options]
+  $ npx kodall-deploy [command] [options]
+
+${bold("COMMANDS:")}
+  use [env]                 Set active default deployment & dev proxy environment
+  switch [env]              Alias for 'use'
 
 ${bold("OPTIONS:")}
   -e, --env <name>          Target environment(s) (e.g., dev, prod, or comma-separated "dev,staging")
@@ -72,7 +76,7 @@ ${bold("OPTIONS:")}
       --add-env [name]      Add or update an environment in kodall-webapp.config.json
       --remove-env [name]   Remove an environment from configuration
       --clone-env <src> [dst] Duplicate/clone an existing environment
-      --set-default <name>  Set default deployment environment
+      --set-default <name>  Set default deployment & dev proxy environment
   -H, --history             Display deployment history for environment(s)
   -R, --rollback [storage]  Roll back web application to a previous storage build
       --build               Force running "npm run build" before deploying
@@ -100,6 +104,9 @@ ${bold("ENVIRONMENT VARIABLES:")}
   KODALL_CLIENT_ID, ONE_CLIENT_ID   OAuth Client ID
 
 ${bold("EXAMPLES:")}
+  $ kodall-deploy use staging       # Switch active default environment to staging
+  $ kodall-deploy use               # Interactively select active environment
+  $ kodall-deploy -l                # List all configured environments
   $ kodall-deploy                   # Interactive deployment menu
   $ kodall-deploy -e prod           # Deploy to production environment
   $ kodall-deploy --type prod       # Deploy to ALL production environments (e.g. prod-us, prod-eu)
@@ -151,6 +158,14 @@ async function main() {
   let cloneTarget: string | undefined;
   let explicitSetDefault = false;
   let setDefaultEnvName: string | undefined;
+
+  if (rawArgs[0] === "use" || rawArgs[0] === "switch" || rawArgs[0] === "set-env") {
+    rawArgs.shift();
+    const target = rawArgs[0] && !rawArgs[0].startsWith("-") ? rawArgs.shift() : undefined;
+    setDefaultEnvName = target;
+    explicitSetDefault = true;
+  }
+
   const args: string[] = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
@@ -1953,16 +1968,26 @@ async function handleSetDefault(configPath: string, envName?: string) {
   const envKeys = Object.keys(config.environments);
   let target = envName;
   if (!target) {
-    target = await askSelect("Select environment to set as default", envKeys, 0);
+    const choices = envKeys.map((k) => {
+      const inst = config.environments?.[k]?.instance || "";
+      return inst ? `${k} (${inst})` : k;
+    });
+    const defaultIdx = config.default_env ? Math.max(0, envKeys.indexOf(config.default_env)) : 0;
+    const selected = await askSelect("Select active development environment", choices, defaultIdx);
+    const selectedIdx = choices.indexOf(selected);
+    target = envKeys[selectedIdx];
   }
 
   if (!config.environments[target]) {
-    log.error(`Environment "${target}" does not exist in ${configPath}`);
+    log.error(`Environment "${target}" does not exist in ${configPath}. Available: ${envKeys.join(", ")}`);
     return;
   }
 
   setDefaultEnvironment(target, configPath);
-  log.success(`Default environment set to "${target}" in ${configPath}!`);
+  const targetInstance = config.environments[target]?.instance || "";
+  log.success(
+    `Active environment set to ${bold(cyan(`"${target}"`))}${targetInstance ? ` (${magenta(targetInstance)})` : ""}`
+  );
 }
 
 async function handleManageEnvs(configPath: string) {
