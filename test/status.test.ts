@@ -19,7 +19,7 @@ describe("Live Remote Status Dashboard", () => {
   beforeAll(async () => {
     server = http.createServer((req, res) => {
       const url = req.url || "";
-      if (url === "/dev-app") {
+      if (url === "/dev-app" || url === "/dev-app-fetch-fail") {
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end("<html><body>Online App</body></html>");
       } else if (url === "/staging-down") {
@@ -35,12 +35,32 @@ describe("Live Remote Status Dashboard", () => {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ userName: "admin" }));
       } else if (url === "/rest/fetch" && req.method === "POST") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify([{ key: 102, id: 102, properties: { id_storage_file: 144 } }]));
+        let fetchBody = "";
+        req.on("data", (c) => (fetchBody += c));
+        req.on("end", () => {
+          if (fetchBody.includes("dev-app-fetch-fail")) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ detail: "Query error" }));
+            return;
+          }
+          if (fetchBody.includes("alt-properties-app")) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify([{ id: 555, storage: 777 }]));
+            return;
+          }
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify([{ key: 102, id: 102, properties: { id_storage_file: 144 } }]));
+        });
+        return;
+      } else if (url === "/alt-properties-app") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end("OK");
+
       } else {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not Found");
       }
+
     });
 
     await new Promise<void>((resolve) => {
@@ -119,21 +139,22 @@ describe("Live Remote Status Dashboard", () => {
     });
 
     it("should gracefully handle entity query network failure", async () => {
-      const status = await checkSingleEnvironmentStatus(
-        {
-          name: "dev",
-          isDefault: true,
-          type: "dev",
-          instance: serverUrl,
-          webAppName: "dev-app",
-          webAppPath: "/dev-app",
-          distPath: "./dist",
-          hasApiKey: true,
-        }
-      );
+      const status = await checkSingleEnvironmentStatus({
+        name: "dev",
+        isDefault: true,
+        type: "dev",
+        instance: serverUrl,
+        webAppName: "dev-app-fetch-fail",
+        webAppPath: "/dev-app-fetch-fail",
+        distPath: "./dist",
+        hasApiKey: true,
+      });
 
       expect(status.state).toBe("ONLINE");
+      expect(status.entityKey).toBeUndefined();
     });
+
+
 
     it("should detect 503 Service Unavailable as OFFLINE", async () => {
       const status = await checkSingleEnvironmentStatus({
@@ -253,5 +274,22 @@ describe("Live Remote Status Dashboard", () => {
         checkAllEnvironmentsStatus(configPath, "prod", tempDir)
       ).rejects.toThrow("not found");
     });
+    it("should map match id and storage when key and id_storage_file are missing", async () => {
+      const status = await checkSingleEnvironmentStatus({
+        name: "dev",
+        isDefault: true,
+        type: "dev",
+        instance: serverUrl,
+        webAppName: "alt-properties-app",
+        webAppPath: "/alt-properties-app",
+        distPath: "./dist",
+        hasApiKey: true,
+      });
+
+      expect(status.state).toBe("ONLINE");
+      expect(status.entityKey).toBe(555);
+      expect(status.storageId).toBe(777);
+    });
   });
 });
+

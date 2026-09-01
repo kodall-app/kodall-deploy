@@ -271,5 +271,68 @@ describe("Framework Detector & Name Sanitizer", () => {
       expect(detected.distPath).toBe("./out");
       expect(detected.framework).toBe("Node.js WebApp");
     });
+
+    it("should detect React standalone project and choose build or dist", () => {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify({ dependencies: { react: "^18.0.0" } }),
+        "utf-8"
+      );
+      expect(detectFramework(tempDir).framework).toBe("React");
+      expect(detectFramework(tempDir).distPath).toBe("./dist");
+
+      fs.mkdirSync(path.join(tempDir, "build"));
+      expect(detectFramework(tempDir).distPath).toBe("./build");
+    });
+
+    it("should detect Static WebApp when candidate directory exists without package.json", () => {
+      fs.mkdirSync(path.join(tempDir, "_site"));
+      fs.writeFileSync(path.join(tempDir, "_site", "index.html"), "<html></html>", "utf-8");
+
+      const detected = detectFramework(tempDir);
+      expect(detected.framework).toBe("Static WebApp");
+      expect(detected.distPath).toBe("./_site");
+    });
+
+    it("should handle corrupted package.json gracefully", () => {
+      fs.writeFileSync(path.join(tempDir, "package.json"), "invalid json");
+      const detected = detectFramework(tempDir);
+      expect(detected.framework).toBe("Custom");
+    });
+
+    it("should detect Angular project with browser output directory", () => {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify({
+          name: "my-ng-app",
+          dependencies: { "@angular/core": "^18.0.0" },
+        })
+      );
+      fs.mkdirSync(path.join(tempDir, "dist", "my-ng-app", "browser"), { recursive: true });
+
+      const detected = detectFramework(tempDir);
+      expect(detected.framework).toBe("Angular");
+      expect(detected.distPath).toBe("./dist/my-ng-app/browser");
+    });
+
+    it("should sanitize edge case project names", () => {
+      expect(sanitizeProjectName("@scope/")).toBe("scope");
+      expect(sanitizeProjectName("---")).toBe("my-app");
+    });
+
+    it("should detect Webpack project with and without build directory", () => {
+      fs.writeFileSync(
+        path.join(tempDir, "package.json"),
+        JSON.stringify({ dependencies: { webpack: "^5.0.0" } })
+      );
+      expect(detectFramework(tempDir).framework).toBe("Webpack");
+      expect(detectFramework(tempDir).distPath).toBe("./dist");
+
+      fs.mkdirSync(path.join(tempDir, "build"));
+      expect(detectFramework(tempDir).distPath).toBe("./build");
+    });
   });
 });
+
+
+

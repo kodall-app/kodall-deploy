@@ -149,6 +149,13 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("deploy-prod:");
       expect(yaml).toContain("- main");
       expect(yaml).toContain("npx kodall-deploy --ci -e prod");
+
+      const defaultGitLab = generateGitLabCIWorkflow({
+        provider: "gitlab",
+        mappings: [{ envName: "dev", branch: "develop" }],
+      });
+      expect(defaultGitLab).toContain("image: node:20");
+      expect(defaultGitLab).toContain("npm ci");
     });
   });
 
@@ -165,8 +172,15 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("pipelines:");
       expect(yaml).toContain("develop:");
       expect(yaml).toContain("npx kodall-deploy --ci -e dev");
+
+      const defaultBitbucket = generateBitbucketPipelinesWorkflow({
+        provider: "bitbucket",
+        mappings: [{ envName: "dev", branch: "develop" }],
+      });
+      expect(defaultBitbucket).toContain("npm ci");
     });
   });
+
 
   describe("generateJenkinsfileWorkflow", () => {
     it("should generate valid Jenkinsfile pipeline", () => {
@@ -187,6 +201,13 @@ describe("CI/CD Workflow Generator", () => {
       expect(jf).toContain("sh 'npx kodall-deploy --ci -e dev'");
       expect(jf).toContain("case \"main\":");
       expect(jf).toContain("sh 'npx kodall-deploy --ci -e prod'");
+
+      // Default options fallback
+      const defaultJf = generateJenkinsfileWorkflow({
+        provider: "jenkins",
+        mappings: [{ envName: "dev", branch: "main" }],
+      });
+      expect(defaultJf).toContain("NodeJS 20");
     });
   });
 
@@ -205,8 +226,16 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("task: NodeTool@0");
       expect(yaml).toContain("pnpm install --frozen-lockfile");
       expect(yaml).toContain('"main") npx kodall-deploy --ci -e prod ;;');
+
+      // Default options fallback
+      const defaultAzure = generateAzureDevOpsWorkflow({
+        provider: "azure",
+        mappings: [{ envName: "prod", branch: "main" }],
+      });
+      expect(defaultAzure).toContain("npm ci");
     });
   });
+
 
   describe("generateCircleCIWorkflow", () => {
     it("should generate valid CircleCI config YAML", () => {
@@ -221,6 +250,13 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("image: cimg/node:20.0");
       expect(yaml).toContain("npx kodall-deploy --ci -e dev");
       expect(yaml).toContain("- develop");
+
+      // Default options fallback
+      const defaultYaml = generateCircleCIWorkflow({
+        provider: "circleci",
+        mappings: [{ envName: "prod", branch: "main" }],
+      });
+      expect(defaultYaml).toContain("image: cimg/node:20.0");
     });
   });
 
@@ -236,8 +272,16 @@ describe("CI/CD Workflow Generator", () => {
       expect(yaml).toContain("version: 0.2");
       expect(yaml).toContain("nodejs: 20");
       expect(yaml).toContain("npx kodall-deploy --ci -e staging");
+
+      // Default options fallback
+      const defaultYaml = generateAWSCodeBuildWorkflow({
+        provider: "aws",
+        mappings: [{ envName: "prod", branch: "main" }],
+      });
+      expect(defaultYaml).toContain("nodejs: 20");
     });
   });
+
 
   describe("generateCIWorkflow", () => {
     it("should write .github/workflows/kodall-deploy.yml to filesystem", () => {

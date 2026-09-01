@@ -92,16 +92,45 @@ describe("Logger & ANSI UI Utilities", () => {
       errorSpy.mockRestore();
     });
 
-    it("should handle interactive mode render and timer", () => {
+    it("should handle interactive mode render and timer", async () => {
       const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-      const spinner = new Spinner("Interactive test", true);
+      const spinner = new Spinner("Interactive test");
+      (spinner as any).isInteractive = true;
       spinner.start("Interactive loading");
+      // Call start again while timer is active to test clearInterval branch
+      spinner.start("Restarting loading");
       spinner.setText("Updated text");
       (spinner as any).render();
+
+      await new Promise((r) => setTimeout(r, 100)); // allow timer tick
+
       spinner.stop();
+      expect(writeSpy).toHaveBeenCalledWith("\r\x1b[K");
 
       writeSpy.mockRestore();
     });
+
+    it("should detect interactive TTY in constructor when stdout.isTTY is true and not CI", () => {
+      const origTTY = process.stdout.isTTY;
+      const origCI = process.env.CI;
+      process.stdout.isTTY = true;
+      delete process.env.CI;
+
+      const spinner = new Spinner("TTY test");
+      expect((spinner as any).isInteractive).toBe(true);
+
+      process.stdout.isTTY = origTTY;
+      process.env.CI = origCI;
+    });
+
+    it("should no-op when render is called in non-interactive mode", () => {
+      const spinner = new Spinner("Non-interactive");
+      (spinner as any).isInteractive = false;
+      expect(() => (spinner as any).render()).not.toThrow();
+    });
   });
 });
+
+
+

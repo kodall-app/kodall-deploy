@@ -112,4 +112,23 @@ describe("proxy-helpers", () => {
       });
     });
   });
+
+  describe("unslashed paths handling", () => {
+    it("prefixes unslashed proxyPaths with / for Nitro and Next", () => {
+      const customOpts = {
+        instance: "https://dev.kodall.io",
+        proxyPaths: ["custom-api"],
+      };
+      const nitroProxy = getNitroProxy(customOpts);
+      expect(nitroProxy["/custom-api"].target).toBe("https://dev.kodall.io/custom-api");
+
+      const rewrites = getNextRewrites(customOpts);
+      expect(rewrites).toContainEqual({
+        source: "/custom-api/:path*",
+        destination: "https://dev.kodall.io/custom-api/:path*",
+      });
+    });
+  });
 });
+
+

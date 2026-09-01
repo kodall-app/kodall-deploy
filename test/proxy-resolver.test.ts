@@ -179,5 +179,54 @@ describe("proxy-resolver", () => {
       expect(result.proxyPaths).toContain("/dev-only-mock");
       expect(result.proxyPaths).toContain("/extra-cli-path");
     });
+
+    it("falls back to first environment when default_env is not specified", () => {
+      const config = {
+        environments: {
+          staging: {
+            instance: "https://staging.kodall.io",
+          },
+        },
+      };
+      fs.writeFileSync(
+        path.join(tmpDir, DEFAULT_CONFIG_FILENAME),
+        JSON.stringify(config, null, 2)
+      );
+
+      const result = resolveProxyConfig({ cwd: tmpDir });
+      expect(result.instanceUrl).toBe("https://staging.kodall.io");
+      expect(result.envName).toBe("staging");
+    });
+
+    it("falls back to first environment instance when selected env has no instance", () => {
+      const config = {
+        default_env: "emptyEnv",
+        environments: {
+          prod: {
+            instance: "https://prod.kodall.io",
+          },
+          emptyEnv: {
+            type: "dev",
+          },
+        },
+      };
+      fs.writeFileSync(
+        path.join(tmpDir, DEFAULT_CONFIG_FILENAME),
+        JSON.stringify(config, null, 2)
+      );
+
+      const result = resolveProxyConfig({ cwd: tmpDir, env: "emptyEnv" });
+      expect(result.instanceUrl).toBe("https://prod.kodall.io");
+    });
+
+    it("should handle normalizeUrl with empty string and matchesProxyPath edge cases", () => {
+      expect(normalizeUrl("")).toBe("");
+      expect(matchesProxyPath("", ["/auth"])).toBe(false);
+      expect(matchesProxyPath("/auth/", ["/auth/"])).toBe(true);
+      expect(matchesProxyPath("/auth?token=123", ["/auth"])).toBe(true);
+    });
   });
 });
+
+
+

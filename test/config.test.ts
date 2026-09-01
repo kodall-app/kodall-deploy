@@ -291,5 +291,167 @@ describe("Config Resolution & Validation", () => {
         { environments: { dev: {}, staging: {} } }
       )
     ).toEqual([]);
+
+    // Undefined environments
+    expect(findTargetEnvironments({ env: "dev" }, {})).toEqual([]);
+  });
+
+  it("should sanitize and clean double https:// prefix and trailing slashes from instance URL", () => {
+    const { resolved } = resolveConfig(
+      {
+        instance: "https://https://app.kodall.ro/",
+        webAppName: "my-app",
+        webAppPath: "/app",
+      },
+      tempDir
+    );
+
+    expect(resolved.instance).toBe("https://app.kodall.ro");
+  });
+
+  it("should auto-migrate flat config with web_app_name used as path", () => {
+    const flatNoPath = {
+      web_app_name: "custom-app",
+      instance: "https://instance.com",
+    };
+    const cfgPath = path.join(tempDir, "flat.json");
+    fs.writeFileSync(cfgPath, JSON.stringify(flatNoPath));
+
+    const { config } = loadConfigFile("flat.json", tempDir);
+    expect(config.web_app_path).toBe("/custom-app");
+
+    // Also with slash in name
+    const flatWithSlash = {
+      web_app_name: "/slash-app",
+      instance: "https://instance.com",
+    };
+    fs.writeFileSync(cfgPath, JSON.stringify(flatWithSlash));
+    const { config: config2 } = loadConfigFile("flat.json", tempDir);
+    expect(config2.web_app_path).toBe("/slash-app");
+
+    // No name and no path
+    const flatEmpty = {
+      instance: "https://instance.com",
+    };
+    fs.writeFileSync(cfgPath, JSON.stringify(flatEmpty));
+    const { config: config3 } = loadConfigFile("flat.json", tempDir);
+    expect(config3.web_app_path).toBe("/app");
+
+    // Path already starts with slash
+    const flatAlreadySlashed = {
+      instance: "https://instance.com",
+      web_app_path: "/already-slashed",
+    };
+    fs.writeFileSync(cfgPath, JSON.stringify(flatAlreadySlashed));
+    const { config: config4 } = loadConfigFile("flat.json", tempDir);
+    expect(config4.web_app_path).toBe("/already-slashed");
+  });
+
+  it("should auto-migrate legacy config file when loadConfigFile is called with default filename", () => {
+    fs.writeFileSync(
+      path.join(tempDir, LEGACY_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://auto.instance.com", web_app_name: "auto-migrated" })
+    );
+
+    const { fileExists, config } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
+    expect(fileExists).toBe(true);
+    expect(config.web_app_name).toBe("auto-migrated");
+
+    // When no legacy file exists and no default file exists
+    const emptySub = path.join(tempDir, "empty-sub");
+    fs.mkdirSync(emptySub);
+    const emptyRes = migrateLegacyConfigFile(emptySub);
+    expect(emptyRes.migrated).toBe(false);
+
+
+    // When legacy file has slashed name
+    fs.writeFileSync(
+      path.join(tempDir, LEGACY_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://slashed.instance.com", web_app_name: "/slashed-legacy" })
+    );
+    try {
+      fs.unlinkSync(path.join(tempDir, DEFAULT_CONFIG_FILENAME));
+    } catch {}
+    const slashRes = migrateLegacyConfigFile(tempDir);
+    expect(slashRes.migrated).toBe(true);
+
+    const { config: slashConfig } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
+    expect(slashConfig.web_app_path).toBe("/slashed-legacy");
+
+    // When default file itself is in flat legacy format and legacy file also exists
+    fs.writeFileSync(
+      path.join(tempDir, DEFAULT_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://flat-default.com", web_app_name: "flat-default" })
+    );
+    fs.writeFileSync(path.join(tempDir, LEGACY_CONFIG_FILENAME), "{}");
+    const flatDefaultRes = migrateLegacyConfigFile(tempDir);
+    expect(flatDefaultRes.migrated).toBe(true);
+
+    // When legacy file exists without web_app_name
+    try {
+      fs.unlinkSync(path.join(tempDir, DEFAULT_CONFIG_FILENAME));
+    } catch {}
+    fs.writeFileSync(
+      path.join(tempDir, LEGACY_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://no-name.com" })
+    );
+    const noNameRes = migrateLegacyConfigFile(tempDir);
+    expect(noNameRes.migrated).toBe(true);
+    const { config: noNameConfig } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
+    expect(noNameConfig.web_app_name).toBe("app");
+    expect(noNameConfig.web_app_path).toBe("/app");
+
+    // Flat default with slashed web_app_name
+    fs.writeFileSync(
+      path.join(tempDir, DEFAULT_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://flat-slash.com", web_app_name: "/slash-app" })
+    );
+    const flatSlashRes = migrateLegacyConfigFile(tempDir);
+    expect(flatSlashRes.migrated).toBe(true);
+
+    // Flat default with unslashed web_app_path
+    fs.writeFileSync(
+      path.join(tempDir, DEFAULT_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://flat-unslashed.com", web_app_path: "unslashed-path" })
+    );
+    const flatUnslashedRes = migrateLegacyConfigFile(tempDir);
+    expect(flatUnslashedRes.migrated).toBe(true);
+    const { config: flatUnslashedConfig } = loadConfigFile(DEFAULT_CONFIG_FILENAME, tempDir);
+    expect(flatUnslashedConfig.web_app_path).toBe("/unslashed-path");
+
+    // Flat default with slashed web_app_path
+    fs.writeFileSync(
+      path.join(tempDir, DEFAULT_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://flat-slashed.com", web_app_path: "/slashed-path" })
+    );
+    const flatSlashedPathRes = migrateLegacyConfigFile(tempDir);
+    expect(flatSlashedPathRes.migrated).toBe(true);
+
+    // Flat default with no web_app_name and no web_app_path
+    fs.writeFileSync(
+      path.join(tempDir, DEFAULT_CONFIG_FILENAME),
+      JSON.stringify({ instance: "https://flat-none.com" })
+    );
+    const flatNoneRes = migrateLegacyConfigFile(tempDir);
+    expect(flatNoneRes.migrated).toBe(true);
+
+    // Corrupted legacy config file
+    try {
+      fs.unlinkSync(path.join(tempDir, DEFAULT_CONFIG_FILENAME));
+    } catch {}
+    fs.writeFileSync(path.join(tempDir, LEGACY_CONFIG_FILENAME), "corrupted json");
+    const corruptedLegacyRes = migrateLegacyConfigFile(tempDir);
+    expect(corruptedLegacyRes.migrated).toBe(false);
   });
 });
+
+
+
+
+
+
+
+
+
+
+

@@ -16,13 +16,18 @@ describe("KodallNodeClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("should handle empty baseUrl and strip trailing slashes", () => {
+  it("should handle empty baseUrl, double protocols, and strip trailing slashes", () => {
     const client = new KodallNodeClient({ baseUrl: "" });
     expect(client.baseUrl).toBe("");
+
+    const clientWithDoubleProto = new KodallNodeClient({ baseUrl: "https://https://example.com/" });
+    expect(clientWithDoubleProto.baseUrl).toBe("https://example.com");
+
 
     const clientWithSlash = new KodallNodeClient({ baseUrl: "https://example.com/" });
     expect(clientWithSlash.baseUrl).toBe("https://example.com");
   });
+
 
   it("should authenticate and store session cookies + CSRF token", async () => {
     const mockHeaders = new Headers();
@@ -65,7 +70,28 @@ describe("KodallNodeClient", () => {
     const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
     const session = await client.basicAuth({ user: "admin", password: "password" });
     expect((session as any).userName).toBe("admin");
+
+    // With OTP in fallback
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("Unsupported", { status: 415 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ userName: "admin_otp" }), { status: 200 })
+      );
+    const sessionOtp = await client.basicAuth({ user: "admin", password: "pwd", otp: "123456" });
+    expect((sessionOtp as any).userName).toBe("admin_otp");
   });
+
+  it("should handle non-JSON error in openIdAuth", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response("Gateway Crash HTML", { status: 502, statusText: "Bad Gateway" })
+    );
+    const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+    await expect(client.openIdAuth({ accessToken: "bad-token" })).rejects.toThrow(
+      "OpenID authentication failed with status 502"
+    );
+  });
+
 
   it("should throw or return Problem on authentication failure", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
@@ -171,10 +197,24 @@ describe("KodallNodeClient", () => {
     const cached = await client.getOidcIssuer();
     expect(cached).toBe(issuer);
 
+    // When instance has oidcIssuer without trailing slash
+    const clientNoSlash = new KodallNodeClient({ baseUrl: "https://noslash.instance.com" });
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://noslash.instance.com/auth") {
+        return Promise.resolve(new Response(JSON.stringify({ oidcIssuer: "https://dev-accounts.oneerp.ro/realms/isjtm" }), { status: 200 }));
+      }
+      if (url === "https://dev-accounts.oneerp.ro/realms/isjtm/.well-known/openid-configuration") {
+        return Promise.resolve(new Response(JSON.stringify(openIdConfig), { status: 200 }));
+      }
+      return Promise.reject(new Error(`Unknown: ${url}`));
+    });
+    expect(await clientNoSlash.getOidcIssuer()).toBeDefined();
+
     // When instance has no oidcIssuer
     const clientNoOidc = new KodallNodeClient({ baseUrl: "https://native.instance.com" });
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: "ONE" }), { status: 200 }));
     expect(await clientNoOidc.getOidcIssuer()).toBeNull();
+
 
     // When well-known openid-configuration returns 404
     const clientFailOidc = new KodallNodeClient({ baseUrl: "https://fail.instance.com" });
@@ -503,6 +543,129 @@ describe("KodallNodeClient", () => {
     ).rejects.toThrow("Update entity failed");
   });
 
+  describe("fetchLatestStorageFileVersion", () => {
+    it("should return the newest storage_file_version record", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            { key: 105, file_name: "latest.zip" },
+            { key: 104, file_name: "older.zip" },
+          ]),
+          { status: 200 }
+        )
+      );
+
+      const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+      const latest = await client.fetchLatestStorageFileVersion(42);
+      expect(latest).toEqual({ key: 105, file_name: "latest.zip" });
+    });
+
+    it("should return null if no versions exist or fetch throws", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify([]), { status: 200 })
+      );
+
+      const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+      expect(await client.fetchLatestStorageFileVersion(42)).toBeNull();
+
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network fail"));
+      expect(await client.fetchLatestStorageFileVersion(42)).toBeNull();
+    });
+  });
+
+  describe("loginWithBrowser error handling", () => {
+    it("should throw when target instance has no OAuth / OpenID Connect configured", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({}), { status: 200 })
+      );
+
+      const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+      await expect(client.loginWithBrowser()).rejects.toThrow(
+        "Target instance does not have OAuth / OpenID Connect configured"
+      );
+    });
+  });
+
+  describe("auth candidate client ID retry and failure", () => {
+    it("should retry next candidate client ID on invalid_client error", async () => {
+      const oidcSample = {
+        oidcIssuer: "https://auth.example.com/realms/test/",
+      };
+      const openIdConfig = {
+        issuer: "https://auth.example.com/realms/test",
+        token_endpoint: "https://auth.example.com/token",
+      };
+
+      let attempt = 0;
+      globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+        if (url === "https://mock.instance.com/auth" && init?.method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify(oidcSample), { status: 200 }));
+        }
+        if (url === "https://auth.example.com/realms/test/.well-known/openid-configuration") {
+          return Promise.resolve(new Response(JSON.stringify(openIdConfig), { status: 200 }));
+        }
+        if (url === openIdConfig.token_endpoint) {
+          attempt++;
+          if (attempt === 1) {
+            return Promise.resolve(
+              new Response(JSON.stringify({ error: "invalid_client", error_description: "Invalid client" }), {
+                status: 400,
+              })
+            );
+          }
+          return Promise.resolve(
+            new Response(JSON.stringify({ access_token: "second-client-token" }), { status: 200 })
+          );
+        }
+        if (url === "https://mock.instance.com/auth" && init?.method === "POST") {
+          return Promise.resolve(new Response(JSON.stringify({ userName: "admin" }), { status: 200 }));
+        }
+        return Promise.reject(new Error(`Unexpected: ${url}`));
+      });
+
+      const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+      const session = await client.auth({ user: "admin", password: "pwd" });
+      expect((session as any).userName).toBe("admin");
+    });
+
+    it("should return last error detail when all candidate client IDs fail", async () => {
+      const oidcSample = {
+        oidcIssuer: "https://auth.example.com/realms/test/",
+      };
+      const openIdConfig = {
+        issuer: "https://auth.example.com/realms/test",
+        token_endpoint: "https://auth.example.com/token",
+      };
+
+      globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+        if (url === "https://mock.instance.com/auth" && init?.method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify(oidcSample), { status: 200 }));
+        }
+        if (url === "https://auth.example.com/realms/test/.well-known/openid-configuration") {
+          return Promise.resolve(new Response(JSON.stringify(openIdConfig), { status: 200 }));
+        }
+        if (url === openIdConfig.token_endpoint) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: "invalid_client", error_description: "Bad client" }), {
+              status: 400,
+            })
+          );
+        }
+        return Promise.reject(new Error(`Unexpected: ${url}`));
+      });
+
+      const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+      const result = await client.auth({ user: "admin", password: "pwd" });
+      expect((result as any).detail).toBe("Bad client");
+    });
+
+    it("should throw when no authentication method is provided", async () => {
+      const client = new KodallNodeClient({ baseUrl: "https://mock.instance.com" });
+      await expect(client.auth({} as any)).rejects.toThrow("No authentication method configured");
+    });
+  });
+
+
   describe("Type Guards", () => {
     it("should correctly identify Validation, Problem, Operation, Storage, and JsonResponse", () => {
       expect(isValidation({ discriminator: "validation", messages: [] })).toBe(true);
@@ -532,3 +695,4 @@ describe("KodallNodeClient", () => {
     });
   });
 });
+

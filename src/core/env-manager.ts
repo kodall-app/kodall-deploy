@@ -107,11 +107,8 @@ export function cloneEnvironment(
     throw new Error(`Source environment "${sourceName}" not found in ${configPath}`);
   }
 
-  if (!config.environments) {
-    config.environments = {};
-  }
-
   if (config.environments[targetName]) {
+
     throw new Error(`Target environment "${targetName}" already exists in ${configPath}`);
   }
 

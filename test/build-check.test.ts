@@ -159,5 +159,24 @@ describe("Build Status Checker", () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });
+
+    it("should handle statSync or readdirSync errors during build check", () => {
+      const distDir = path.join(tempDir, "dist");
+      fs.mkdirSync(distDir, { recursive: true });
+      fs.writeFileSync(path.join(distDir, "index.html"), "<html></html>");
+
+      const result = checkBuildStatus("./dist", path.join(tempDir, "missing-project-root"));
+      expect(result.exists).toBe(false);
+      expect(result.isStale).toBe(false);
+
+      // Corrupted package.json
+      fs.writeFileSync(path.join(tempDir, "package.json"), "invalid json content");
+      const corruptedPkgResult = checkBuildStatus("./dist", tempDir);
+      expect(corruptedPkgResult.exists).toBe(true);
+      expect(corruptedPkgResult.hasBuildScript).toBe(false);
+    });
   });
 });
+
+
+

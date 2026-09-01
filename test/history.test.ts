@@ -4,11 +4,14 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   clearDeploymentHistory,
+  ensureGitIgnoreEntry,
   getDeploymentHistory,
   getPreviousDeployment,
   readDeploymentHistory,
   recordDeployment,
 } from "../src/core/history.js";
+
+
 import { DeploymentRecord } from "../src/core/types.js";
 
 describe("History Storage Layer", () => {
@@ -153,11 +156,13 @@ describe("History Storage Layer", () => {
       tempDir
     );
 
-    // Create legacy file too
+    // Create legacy files too
     fs.writeFileSync(path.join(tempDir, ".one-deploy-history.json"), "[]");
+    fs.writeFileSync(path.join(tempDir, ".kodall-deploy-history.json"), "[]");
 
     clearDeploymentHistory(tempDir);
     expect(readDeploymentHistory(tempDir)).toEqual([]);
+    expect(fs.existsSync(path.join(tempDir, ".kodall-deploy-history.json"))).toBe(false);
   });
 
   it("should ensure .gitignore ignores .one-deploy/", () => {
@@ -200,7 +205,8 @@ describe("History Storage Layer", () => {
   });
 
   it("should read from legacy history file and clean it up on new record", () => {
-    const legacyPath = path.join(tempDir, ".one-deploy-history.json");
+    const legacyPath = path.join(tempDir, ".kodall-deploy-history.json");
+    const oldLegacyPath = path.join(tempDir, ".one-deploy-history.json");
     fs.writeFileSync(
       legacyPath,
       JSON.stringify([
@@ -218,13 +224,14 @@ describe("History Storage Layer", () => {
       ]),
       "utf-8"
     );
+    fs.writeFileSync(oldLegacyPath, "[]", "utf-8");
 
     // Should read legacy record
     const history = readDeploymentHistory(tempDir);
     expect(history.length).toBe(1);
     expect(history[0].id).toBe("legacy-dep");
 
-    // Recording new deployment should migrate and remove legacy file
+    // Recording new deployment should migrate and remove legacy files
     recordDeployment(
       {
         id: "new-dep",
@@ -241,6 +248,7 @@ describe("History Storage Layer", () => {
     );
 
     expect(fs.existsSync(legacyPath)).toBe(false);
+    expect(fs.existsSync(oldLegacyPath)).toBe(false);
     const updated = readDeploymentHistory(tempDir);
     expect(updated.length).toBe(2);
   });
@@ -257,4 +265,41 @@ describe("History Storage Layer", () => {
     fs.writeFileSync(path.join(historyDir, "history.json"), "invalid-json-content", "utf-8");
     expect(readDeploymentHistory(tempDir)).toEqual([]);
   });
+
+  it("should handle inaccessible gitignore and unlinkSync failure gracefully", () => {
+    // ensureGitIgnoreEntry catching error when .gitignore is a directory
+    const gitignoreDir = path.join(tempDir, ".gitignore");
+    fs.mkdirSync(gitignoreDir);
+    expect(() => ensureGitIgnoreEntry(tempDir)).not.toThrow();
+    fs.rmdirSync(gitignoreDir);
+
+
+
+    // unlink failure when path is directory instead of file
+    const legacyPath = path.join(tempDir, ".kodall-deploy-history.json");
+    fs.mkdirSync(legacyPath);
+    const oldLegacyPath = path.join(tempDir, ".one-deploy-history.json");
+    fs.mkdirSync(oldLegacyPath);
+
+    expect(() =>
+      recordDeployment(
+        {
+          id: "rec-1",
+          timestamp: "2026-08-20T10:00:00.000Z",
+          env: "dev",
+          instance: "https://dev.kodall.ro",
+          entityKey: "24",
+          storageId: "100",
+          webAppName: "my-app",
+          webAppPath: "/app",
+          action: "updated",
+        },
+        tempDir
+      )
+    ).not.toThrow();
+  });
 });
+
+
+
+

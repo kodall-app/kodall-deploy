@@ -36,7 +36,14 @@ describe("Prompt Utilities", () => {
       const result = await askText("Optional field", undefined, false);
       expect(result).toBe("");
     });
+
+    it("should reprompt when required field is left blank without default", async () => {
+      mockQuestion.mockResolvedValueOnce("").mockResolvedValueOnce("valid-input");
+      const result = await askText("Required field", undefined, true);
+      expect(result).toBe("valid-input");
+    });
   });
+
 
   describe("askConfirm", () => {
     it("should return true when user inputs y / yes", async () => {
@@ -62,6 +69,7 @@ describe("Prompt Utilities", () => {
 
   describe("askPassword", () => {
     it("should capture masked password input and resolve on enter", async () => {
+
       const passwordPromise = askPassword("Enter secret");
 
       // Type "p", "a", "s", "s", Backspace, "s", Enter
@@ -76,7 +84,60 @@ describe("Prompt Utilities", () => {
       const result = await passwordPromise;
       expect(result).toBe("pass");
     });
+
+    it("should reprompt when required password is empty", async () => {
+      const passwordPromise = askPassword("Enter secret", true);
+
+      // Hit Enter immediately (empty), then type "abc", Enter
+      process.stdin.emit("data", Buffer.from("\r"));
+      process.stdin.emit("data", Buffer.from("abc\r"));
+
+      const result = await passwordPromise;
+      expect(result).toBe("abc");
+    });
+
+    it("should handle Ctrl+C interrupt in askPassword", async () => {
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+
+      askPassword("Enter secret");
+      process.stdin.emit("data", Buffer.from("\u0003"));
+
+      expect(exitSpy).toHaveBeenCalledWith(130);
+      exitSpy.mockRestore();
+
+      // With setRawMode defined
+      const origSetRaw = process.stdin.setRawMode;
+      const mockSetRaw = vi.fn();
+      process.stdin.setRawMode = mockSetRaw;
+
+      const exitSpy2 = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+      askPassword("Enter secret");
+      process.stdin.emit("data", Buffer.from("\u0003"));
+      expect(exitSpy2).toHaveBeenCalledWith(130);
+      expect(mockSetRaw).toHaveBeenCalled();
+
+      exitSpy2.mockRestore();
+      process.stdin.setRawMode = origSetRaw;
+    });
+
+
+    it("should toggle raw mode if setRawMode is available during askPassword", async () => {
+      const origSetRaw = process.stdin.setRawMode;
+      const mockSetRaw = vi.fn();
+      process.stdin.setRawMode = mockSetRaw;
+
+      const passwordPromise = askPassword("Enter secret");
+      process.stdin.emit("data", Buffer.from("secret\r"));
+      await passwordPromise;
+
+      expect(mockSetRaw).toHaveBeenCalledWith(true);
+      expect(mockSetRaw).toHaveBeenCalledWith(false);
+
+      process.stdin.setRawMode = origSetRaw;
+    });
   });
+
+
 
   describe("askSelect", () => {
     it("should throw when choices array is empty", async () => {
@@ -172,5 +233,28 @@ describe("Prompt Utilities", () => {
       process.stdin.isTTY = origTTY;
       process.env.CI = origCI;
     });
+
+    it("should toggle raw mode if setRawMode is available on process.stdin", async () => {
+      const origTTY = process.stdin.isTTY;
+      const origCI = process.env.CI;
+      const origSetRawMode = process.stdin.setRawMode;
+
+      process.stdin.isTTY = true;
+      delete process.env.CI;
+      const mockSetRaw = vi.fn();
+      process.stdin.setRawMode = mockSetRaw;
+
+      const selectPromise = askSelect("Select target", ["item1", "item2"], 0);
+      process.stdin.emit("data", Buffer.from("\r"));
+      await selectPromise;
+
+      expect(mockSetRaw).toHaveBeenCalledWith(true);
+      expect(mockSetRaw).toHaveBeenCalledWith(false);
+
+      process.stdin.setRawMode = origSetRawMode;
+      process.stdin.isTTY = origTTY;
+      process.env.CI = origCI;
+    });
   });
+
 });

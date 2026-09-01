@@ -33,9 +33,19 @@ describe("Archiver", () => {
 
     // Idempotent cleanup call
     archive.cleanup();
+
+    // Cleanup when archivePath is directory to trigger unlinkSync error catch
+    const archive2 = await createArchive(tempDir);
+    const archivePath = archive2.archivePath;
+    fs.unlinkSync(archivePath);
+    fs.mkdirSync(archivePath);
+    expect(() => archive2.cleanup()).not.toThrow();
+    fs.rmdirSync(archivePath);
   });
 
   it("should fail when target directory does not exist", async () => {
     await expect(createArchive(path.join(tempDir, "nonexistent-dir"))).rejects.toThrow();
   });
 });
+
+

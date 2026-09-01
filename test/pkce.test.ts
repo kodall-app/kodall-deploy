@@ -41,9 +41,22 @@ describe("PKCE Browser OAuth Login", () => {
   });
 
   it("should openUrlInBrowser without throwing across platforms", () => {
-    expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+      expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
+
+      Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+      expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
+
+      Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+      expect(() => openUrlInBrowser("https://example.com")).not.toThrow();
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
     expect(childProcess.execFile).toHaveBeenCalled();
   });
+
 
   it("should start local loopback server, capture authorization code, and exchange tokens", async () => {
     const oidcProvider = {
@@ -239,4 +252,161 @@ describe("PKCE Browser OAuth Login", () => {
 
     expect((session as any).userName).toBe("browser_user");
   });
+
+  it("should open browser when openBrowser is true", async () => {
+    const oidcProvider = {
+      issuer: "https://auth.example.com/realms/test",
+      authorization_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/auth",
+      token_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/token",
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+      if (url.startsWith("http://localhost:") || url.startsWith("http://127.0.0.1:")) {
+        return originalFetch(url, init);
+      }
+      if (url === oidcProvider.token_endpoint) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              access_token: "browser-access-token",
+              refresh_token: "browser-refresh-token",
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.reject(new Error(`Unexpected: ${url}`));
+    });
+
+    let capturedUrl = "";
+    const loginPromise = executeBrowserOAuthLogin({
+      oidcProvider,
+      clientId: "account",
+      port: 3995,
+      openBrowser: true,
+      onAuthUrl: (url) => {
+        capturedUrl = url;
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(childProcess.execFile).toHaveBeenCalled();
+
+    const authUrlObj = new URL(capturedUrl);
+    const state = authUrlObj.searchParams.get("state");
+
+    await originalFetch(`http://localhost:3995/?code=test-code&state=${state}`);
+    const tokens = await loginPromise;
+    expect(tokens.accessToken).toBe("browser-access-token");
+  });
+
+  it("should timeout if user does not authenticate within timeoutMs", async () => {
+    const oidcProvider = {
+      issuer: "https://auth.example.com/realms/test",
+      authorization_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/auth",
+      token_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/token",
+    };
+
+    const loginPromise = executeBrowserOAuthLogin({
+      oidcProvider,
+      clientId: "account",
+      port: 3994,
+      openBrowser: false,
+      timeoutMs: 40,
+    });
+
+    await expect(loginPromise).rejects.toThrow("Browser authentication timed out");
+  });
+
+  it("should handle EADDRINUSE port conflict and other server errors", async () => {
+    const oidcProvider = {
+      issuer: "https://auth.example.com/realms/test",
+      authorization_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/auth",
+      token_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/token",
+    };
+
+    // 1. Occupy a port with an existing server
+    const blocker = (await import("node:http")).createServer();
+    await new Promise<void>((resolve) => blocker.listen(3993, "localhost", () => resolve()));
+
+    try {
+      const loginPromise = executeBrowserOAuthLogin({
+        oidcProvider,
+        clientId: "account",
+        port: 3993,
+        openBrowser: false,
+      });
+
+      await expect(loginPromise).rejects.toThrow("Port 3993 is already in use");
+    } finally {
+      blocker.close();
+    }
+  });
+
+
+
+
+  it("should handle unexpected error thrown during request handling in loopback server", async () => {
+    const oidcProvider = {
+      issuer: "https://auth.example.com/realms/test",
+      authorization_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/auth",
+      token_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/token",
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init: any) => {
+      if (url.startsWith("http://localhost:") || url.startsWith("http://127.0.0.1:")) {
+        return originalFetch(url, init);
+      }
+      if (url === oidcProvider.token_endpoint) {
+        return Promise.reject(new Error("Fatal connection break"));
+      }
+      return Promise.reject(new Error(`Unexpected: ${url}`));
+    });
+
+    const loginPromise = executeBrowserOAuthLogin({
+      oidcProvider,
+      clientId: "account",
+      port: 3992,
+      openBrowser: false,
+    });
+    loginPromise.catch(() => {});
+
+    await new Promise((r) => setTimeout(r, 50));
+    const callbackRes = await originalFetch("http://localhost:3992/?code=any-code");
+    expect(callbackRes.status).toBe(200);
+
+    await expect(loginPromise).rejects.toThrow("Fatal connection break");
+  });
+
+  it("should return 400 when request to loopback server has no code and no error", async () => {
+    const oidcProvider = {
+      issuer: "https://auth.example.com/realms/test",
+      authorization_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/auth",
+      token_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/token",
+    };
+
+    const loginPromise = executeBrowserOAuthLogin({
+      oidcProvider,
+      clientId: "account",
+      port: 3991,
+      openBrowser: false,
+      timeoutMs: 100,
+    });
+    loginPromise.catch(() => {});
+
+    await new Promise((r) => setTimeout(r, 50));
+    const faviconRes = await originalFetch("http://localhost:3991/favicon.ico");
+    expect(faviconRes.status).toBe(204);
+
+    const callbackRes = await originalFetch("http://localhost:3991/");
+    expect(callbackRes.status).toBe(400);
+    expect(await callbackRes.text()).toContain("Missing authorization code.");
+
+    await expect(loginPromise).rejects.toThrow("Browser authentication timed out");
+  });
 });
+
+
+
+
+
