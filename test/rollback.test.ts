@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
 import { rollback } from "../src/core/rollback.js";
 import { recordDeployment } from "../src/core/history.js";
 
@@ -182,18 +183,30 @@ describe("Rollback Engine", () => {
     });
   });
 
-  afterAll(() => {
-    server.close();
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("should repoint web_app entity storage to targetStorageId without re-uploading", async () => {
+  beforeEach(() => {
     serverVersion = null;
     updateCalled = false;
     updatedStorageValue = null;
+    updatedVersionValue = null;
+    updatedPathValue = null;
     updateReturnsProblem = false;
     updateReturnsValidation = false;
     entityMissing = false;
     fetchReturnsUnrelatedEntity = false;
+    fetchThrowsForLog = false;
+    fetchThrowsFirstEntityQuery = false;
+    fetchThrowsAllEntityQueries = false;
+    sessionThrows = false;
+    mockLogs = [];
+  });
+
+
+  it("should repoint web_app entity storage to targetStorageId without re-uploading", async () => {
+
 
     const result = await rollback({
       instance: serverUrl,

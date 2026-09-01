@@ -2,7 +2,9 @@ import { KodallNodeClient } from "../client/kodall-node-client.js";
 import { isOperation, isProblem, isStorage, isValidation } from "../client/types.js";
 import { createArchive } from "./archiver.js";
 import { resolveConfig, validateDistDirectory } from "./config.js";
+import { checkEndpointHealth } from "./health.js";
 import { recordDeployment } from "./history.js";
+
 import { DeployOptions, DeployResult, ResolvedConfig } from "./types.js";
 import { isVersionAtLeast } from "./version.js";
 
@@ -278,7 +280,6 @@ export async function deploy(
       const liveUrl = `${config.instance}${config.web_app_path}`;
       notify("health", "start", `Checking live endpoint: ${liveUrl}...`);
       try {
-        const { checkEndpointHealth } = await import("./health.js");
         healthResult = await checkEndpointHealth(liveUrl);
         if (healthResult.ok) {
           notify(
@@ -297,6 +298,7 @@ export async function deploy(
         // Non-fatal if health check ping fails
       }
     }
+
 
     const durationMs = Date.now() - startTime;
 

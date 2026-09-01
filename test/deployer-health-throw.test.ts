@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -12,8 +13,20 @@ vi.mock("../src/core/health.js", () => {
 });
 
 describe("Deployer health check throw test", () => {
+  const originalFetch = globalThis.fetch;
+  let tempDir: string = "";
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (tempDir) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
   it("should catch unexpected throw from health checker and continue", async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kodall-dep-hth-"));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kodall-dep-hth-"));
     const distDir = path.join(tempDir, "dist");
     fs.mkdirSync(distDir);
     fs.writeFileSync(path.join(distDir, "index.html"), "<html></html>");
@@ -34,7 +47,6 @@ describe("Deployer health check throw test", () => {
       return Promise.reject(new Error(`Unhandled URL: ${url}`));
     });
 
-
     const { deploy } = await import("../src/core/deployer.js");
     const result = await deploy(
       {
@@ -49,6 +61,6 @@ describe("Deployer health check throw test", () => {
     );
 
     expect(result.success).toBe(true);
-    fs.rmSync(tempDir, { recursive: true, force: true });
   });
 });
+

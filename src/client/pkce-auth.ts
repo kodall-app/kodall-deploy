@@ -53,7 +53,18 @@ export interface BrowserLoginOptions {
  * Opens the user's browser, waits for Keycloak/SSO authentication, captures the authorization code,
  * and exchanges it at the token endpoint for OpenID access and refresh tokens.
  */
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c] || c));
+}
+
 export async function executeBrowserOAuthLogin(
+
   options: BrowserLoginOptions
 ): Promise<OidcTokens> {
   const {
@@ -86,8 +97,10 @@ export async function executeBrowserOAuthLogin(
         const code = reqUrl.searchParams.get("code");
         const error = reqUrl.searchParams.get("error");
         const errorDescription = reqUrl.searchParams.get("error_description");
+        const callbackState = reqUrl.searchParams.get("state");
 
         if (error) {
+          const safeError = escapeHtml(errorDescription || error);
           res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
           res.end(`
             <!DOCTYPE html>
@@ -105,7 +118,7 @@ export async function executeBrowserOAuthLogin(
             <body>
               <div class="card">
                 <h1>Authentication Failed</h1>
-                <p>${errorDescription || error}</p>
+                <p>${safeError}</p>
                 <p>You can close this window and return to your terminal.</p>
               </div>
             </body>
@@ -116,11 +129,20 @@ export async function executeBrowserOAuthLogin(
           return;
         }
 
+        if (callbackState && callbackState !== state) {
+          res.writeHead(400, { "Content-Type": "text/plain" });
+          res.end("Invalid state parameter (CSRF protection).");
+          cleanup();
+          reject(new Error("OAuth state parameter mismatch. Possible CSRF attack."));
+          return;
+        }
+
         if (!code) {
           res.writeHead(400, { "Content-Type": "text/plain" });
           res.end("Missing authorization code.");
           return;
         }
+
 
         // Render success page to the browser with automatic tab close and close connection
         res.writeHead(200, {

@@ -14,10 +14,12 @@ export function sanitizeProjectName(name: string): string {
   }
   // Replace invalid URL characters with hyphen
   cleaned = cleaned.replace(/[^a-zA-Z0-9_.-]/g, "-").replace(/-+/g, "-");
-  // Remove leading/trailing dashes
-  cleaned = cleaned.replace(/^-+|-+$/g, "");
+  // Remove leading/trailing dashes and dots
+  cleaned = cleaned.replace(/^[-.]+|[-.]+$/g, "");
+  if (cleaned === ".." || cleaned === ".") return "my-app";
   return cleaned || "my-app";
 }
+
 
 /**
  * Automatically inspect project files and dependencies to detect framework and smart build directory

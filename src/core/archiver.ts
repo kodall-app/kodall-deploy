@@ -32,20 +32,25 @@ export async function createArchive(
       zlib: { level: compressionLevel },
     });
 
+    const cleanup = () => {
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      } catch {
+        // Ignore cleanup deletion errors
+      }
+    };
+
+    output.on("error", (err) => {
+      cleanup();
+      reject(err);
+    });
+
     output.on("close", () => {
       try {
         const buffer = fs.readFileSync(tempFilePath);
         const sizeBytes = archive.pointer();
-
-        const cleanup = () => {
-          try {
-            if (fs.existsSync(tempFilePath)) {
-              fs.unlinkSync(tempFilePath);
-            }
-          } catch {
-            // Ignore cleanup deletion errors
-          }
-        };
 
         resolve({
           archivePath: tempFilePath,
@@ -57,6 +62,7 @@ export async function createArchive(
         reject(err);
       }
     });
+
 
     archive.on("warning", (err: any) => {
       if (err.code === "ENOENT") {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 
 let emitCloseError = false;
+let emitOutputStreamError = false;
 let emitNonEnoent = false;
 
 vi.mock("archiver", () => {
@@ -9,11 +10,17 @@ vi.mock("archiver", () => {
     default: () => {
       const ee = new EventEmitter();
       let stream: any = null;
+      (ee as any).pointer = vi.fn(() => 100);
       (ee as any).pipe = vi.fn((s) => {
         stream = s;
       });
       (ee as any).directory = vi.fn();
       (ee as any).finalize = vi.fn(() => {
+        if (emitOutputStreamError) {
+          process.nextTick(() => stream?.emit("error", new Error("Disk write stream failed")));
+          return;
+        }
+
         if (emitCloseError) {
           const fsMod = require("node:fs");
           const osMod = require("node:os");
@@ -21,7 +28,7 @@ vi.mock("archiver", () => {
           const tmpDir = osMod.tmpdir();
           const files = fsMod.readdirSync(tmpDir);
           for (const f of files) {
-            if (f.startsWith("kodall-archive-") && f.endsWith(".zip")) {
+            if (f.startsWith("kodall-deploy-") && f.endsWith(".zip")) {
               try {
                 fsMod.unlinkSync(require("node:path").join(tmpDir, f));
               } catch {}
@@ -65,7 +72,14 @@ describe("Archiver events", () => {
     const { createArchive } = await import("../src/core/archiver.js");
     await expect(createArchive(".")).rejects.toThrow();
   });
+
+  it("should reject when write stream emits error", async () => {
+    emitOutputStreamError = true;
+    const { createArchive } = await import("../src/core/archiver.js");
+    await expect(createArchive(".")).rejects.toThrow("Disk write stream failed");
+  });
 });
+
 
 
 

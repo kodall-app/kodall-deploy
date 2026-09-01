@@ -60,9 +60,11 @@ export class KodallNodeClient {
     const csrfToken = this.cookieStore.getCsrfToken();
     if (csrfToken) {
       headers["X-CSRF-TOKEN"] = csrfToken;
-    } else if (this.apiKey) {
+    }
+    if (this.apiKey) {
       headers["X-API-Key"] = this.apiKey;
     }
+
 
     return headers;
   }

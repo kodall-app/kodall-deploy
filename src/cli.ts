@@ -1,5 +1,7 @@
+#!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { checkBuildStatus, runBuild } from "./core/build-check.js";
+
 import {
   detectExistingCIProvider,
   detectPackageManager,
@@ -337,9 +339,10 @@ async function main() {
     });
   } catch (err) {
     log.error((err as Error).message);
-    console.log(dim("Run 'one-deploy --help' for usage."));
+    console.log(dim("Run 'kodall-deploy --help' for usage."));
     process.exit(1);
   }
+
 
   const flags = parsed.values;
 

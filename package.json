@@ -7,20 +7,36 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./plugin/vite": {
-      "types": "./dist/plugin/vite.d.ts",
-      "import": "./dist/plugin/vite.js",
-      "require": "./dist/plugin/vite.cjs"
+      "import": {
+        "types": "./dist/plugin/vite.d.ts",
+        "default": "./dist/plugin/vite.js"
+      },
+      "require": {
+        "types": "./dist/plugin/vite.d.cts",
+        "default": "./dist/plugin/vite.cjs"
+      }
     },
     "./vite": {
-      "types": "./dist/plugin/vite.d.ts",
-      "import": "./dist/plugin/vite.js",
-      "require": "./dist/plugin/vite.cjs"
-    }
+      "import": {
+        "types": "./dist/plugin/vite.d.ts",
+        "default": "./dist/plugin/vite.js"
+      },
+      "require": {
+        "types": "./dist/plugin/vite.d.cts",
+        "default": "./dist/plugin/vite.cjs"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "kodall-deploy": "./dist/cli.js",
@@ -40,8 +56,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
+
   "keywords": [
     "kodall",
     "deploy",

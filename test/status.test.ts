@@ -72,9 +72,10 @@ describe("Live Remote Status Dashboard", () => {
     });
   });
 
-  afterAll(() => {
-    server.close();
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
+
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kodall-status-test-"));

@@ -145,14 +145,17 @@ describe("PKCE Browser OAuth Login", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    // Simulate error response from IdP
+    // Simulate error response from IdP with special HTML characters to test escaping
     const callbackRes = await originalFetch(
-      `http://localhost:3998/?error=access_denied&error_description=User%20cancelled%20login`
+      `http://localhost:3998/?error=access_denied&error_description=${encodeURIComponent('<script>alert("xss & \'1\'")</script>')}`
     );
     expect(callbackRes.status).toBe(400);
+    const errorHtml = await callbackRes.text();
+    expect(errorHtml).toContain("&lt;script&gt;alert(&quot;xss &amp; &#39;1&#39;&quot;)&lt;/script&gt;");
 
-    await expect(loginPromise).rejects.toThrow("OAuth Error from IdP: User cancelled login");
+    await expect(loginPromise).rejects.toThrow('OAuth Error from IdP: <script>alert("xss & \'1\'")</script>');
   });
+
 
   it("should handle missing code or exchange failure", async () => {
     const oidcProvider = {
@@ -404,7 +407,31 @@ describe("PKCE Browser OAuth Login", () => {
 
     await expect(loginPromise).rejects.toThrow("Browser authentication timed out");
   });
+
+  it("should reject when callback state does not match generated state", async () => {
+    const oidcProvider = {
+      issuer: "https://auth.example.com/realms/test",
+      authorization_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/auth",
+      token_endpoint: "https://auth.example.com/realms/test/protocol/openid-connect/token",
+    };
+
+    const loginPromise = executeBrowserOAuthLogin({
+      oidcProvider,
+      clientId: "account",
+      port: 3990,
+      openBrowser: false,
+    });
+    loginPromise.catch(() => {});
+
+    await new Promise((r) => setTimeout(r, 50));
+    const callbackRes = await originalFetch("http://localhost:3990/?code=any-code&state=wrong-state");
+    expect(callbackRes.status).toBe(400);
+    expect(await callbackRes.text()).toContain("Invalid state parameter");
+
+    await expect(loginPromise).rejects.toThrow("OAuth state parameter mismatch");
+  });
 });
+
 
 
 

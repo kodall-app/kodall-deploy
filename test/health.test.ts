@@ -30,9 +30,10 @@ describe("Health Check Ping", () => {
     });
   });
 
-  afterAll(() => {
-    server.close();
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
+
 
   it("should return ok: true for 200 responses", async () => {
     const result = await checkEndpointHealth(`${serverUrl}/live-test`);

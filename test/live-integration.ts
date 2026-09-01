@@ -9,10 +9,11 @@ import * as path from "node:path";
 import { DEFAULT_CONFIG_FILENAME, saveConfigFile } from "../src/core/config.js";
 import { deploy } from "../src/core/deployer.js";
 
-const INSTANCE = "https://deviulianr2.oneerp.ro/";
-const USERNAME = "root";
-const PASSWORD = "1234";
-const API_KEY = "2aefed1a-9bc8-49b6-8f5a-e825614bb2b0";
+const INSTANCE = process.env.TEST_KODALL_INSTANCE || "https://example.kodall.com/";
+const USERNAME = process.env.TEST_KODALL_USER || "root";
+const PASSWORD = process.env.TEST_KODALL_PASSWORD || "password";
+const API_KEY = process.env.TEST_KODALL_API_KEY || "mock-api-key";
+
 
 async function runLiveTest() {
   console.log("=================================================");

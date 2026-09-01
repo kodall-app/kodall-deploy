@@ -21,7 +21,6 @@ export async function checkEndpointHealth(
       },
     });
 
-    clearTimeout(timer);
     const durationMs = Date.now() - startTime;
     const ok = response.status >= 200 && response.status < 400;
 
@@ -33,7 +32,6 @@ export async function checkEndpointHealth(
       durationMs,
     };
   } catch (err: any) {
-    clearTimeout(timer);
     const durationMs = Date.now() - startTime;
     const isTimeout = err.name === "AbortError";
 
@@ -45,5 +43,8 @@ export async function checkEndpointHealth(
       durationMs,
       error: err.message || "Failed to reach endpoint",
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
+
