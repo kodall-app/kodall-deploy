@@ -21,21 +21,23 @@ A fast, modern CLI tool and TypeScript library to package, bundle, and deploy we
 7. [Environment Management](#environment-management)
 8. [Live Remote Status Dashboard](#live-remote-status-dashboard)
 9. [Deployment History & Instant Rollback](#deployment-history--instant-rollback)
-10. [CI / CD Pipeline Integration (`--init-ci`)](#ci--cd-pipeline-integration---init-ci)
-11. [Programmatic API](#programmatic-api)
+10. [Local Development Proxy (Vite, Nuxt, Next.js, Angular)](#local-development-proxy-vite-nuxt-nextjs-angular)
+11. [CI / CD Pipeline Integration (`--init-ci`)](#ci--cd-pipeline-integration---init-ci)
+12. [Programmatic API](#programmatic-api)
     - [`deploy(options)`](#deployoptions)
     - [`rollback(options)`](#rollbackoptions)
     - [`listEnvironments(configPath)`](#listenvironmentsconfigpath)
     - [`checkAllEnvironmentsStatus(configPath)`](#checkallenvironmentsstatusconfigpath)
-12. [TypeScript Types](#typescript-types)
-13. [Troubleshooting & FAQ](#troubleshooting--faq)
-14. [License](#license)
+13. [TypeScript Types](#typescript-types)
+14. [Troubleshooting & FAQ](#troubleshooting--faq)
+15. [License](#license)
 
 ---
 
 ## Features
 
 * ⚡ **Framework Auto-Detection**: Instant zero-config setup detecting Vite, Next.js, Nuxt, Vue, Angular, SvelteKit, Remix, Astro, and Static HTML.
+* 🔄 **Local Development Proxy & Vite Plugin**: Zero-config API reverse proxy forwarding `/auth`, `/rest`, and `/storage` directly to your target Kodall instance with cookie & CORS handling.
 * 🔨 **Stale & Missing Build Detection**: Checks if source code was modified after the last build and offers one-click rebuild before deploying.
 * 🩺 **Post-Deploy Live Health Check**: Automatically pings your live endpoint after deploy to verify `200 OK` status and display server latency.
 * 📜 **Deployment History & Instant Rollback**: Sub-second rollback to any previous storage build (`--rollback`) with zero rebuild or re-upload.
@@ -43,10 +45,11 @@ A fast, modern CLI tool and TypeScript library to package, bundle, and deploy we
 * 📊 **Live Remote Status Dashboard**: Inspect live server availability, active storage IDs, and response latency across all instances simultaneously (`--status`).
 * 🤖 **CI/CD Workflow Generator**: Generate ready-to-run automated pipeline files for GitHub Actions, GitLab CI, Bitbucket Pipelines, Jenkins, Azure DevOps, CircleCI, or AWS CodeBuild (`--init-ci`).
 * 🌍 **Multi-Environment Batch Deployments**: Deploy to specific environments (`-e dev,staging`), categories (`--type prod`), or all servers sequentially (`--all`).
-* 🔐 **Flexible Authentication**: Supports API Key tokens and Username/Password with automatic session and CSRF handling.
+* 🔐 **Flexible Authentication**: Supports API Key tokens, OAuth 2.0 PKCE browser login, and Username/Password with automatic session and CSRF handling.
 * 🧪 **Dry-Run Mode**: Test configurations, authentication, and server routes without uploading or mutating files (`--dry-run`).
 * 🛡️ **Zero Workspace Pollution**: Temp archives are created in OS temporary folders and cleaned up automatically.
 * 📦 **CLI & Library**: Use as an interactive or headless CLI (`npx kodall-deploy`) or import as a TypeScript/ESM/CJS library.
+
 
 ---
 [↑ back to top](#kodall-deploy)
@@ -345,7 +348,88 @@ npx kodall-deploy --rollback 144 -e prod
 ---
 [↑ back to top](#kodall-deploy)
 
+## Local Development Proxy (Vite, Nuxt, Next.js, Angular)
+
+During local development, web applications need to communicate with a remote Kodall instance (`/auth`, `/rest`, `/storage`). `kodall-deploy` provides zero-config proxy plugins and helpers that read target instance URLs directly from your `kodall-webapp.config.json` (or environment variables) to eliminate CORS and authentication cookie issues.
+
+### 1. Vite Plugin (`kodallProxy`)
+
+Import directly from `@kodall/kodall-deploy/vite` or `@kodall/kodall-deploy`:
+
+```typescript
+// vite.config.ts
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+import { kodallProxy } from "@kodall/kodall-deploy/vite";
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    kodallProxy({
+      env: "dev", // reads instance from environments.dev in kodall-webapp.config.json
+    }),
+  ],
+});
+```
+
+### 2. Nuxt 3 / Nuxt 4 (Nitro)
+
+Configure proxying in `nuxt.config.ts` using either `getNitroProxy()` or `kodallProxyNuxt()`:
+
+```typescript
+// nuxt.config.ts
+import { getNitroProxy } from "@kodall/kodall-deploy";
+
+export default defineNuxtConfig({
+  nitro: {
+    devProxy: getNitroProxy({ env: "dev" }),
+  },
+});
+```
+
+### 3. Next.js (`next.config.ts` / `next.config.js`)
+
+Add API rewrites to `next.config.ts`:
+
+```typescript
+// next.config.ts
+import type { NextConfig } from "next";
+import { getNextRewrites } from "@kodall/kodall-deploy";
+
+const nextConfig: NextConfig = {
+  async rewrites() {
+    return getNextRewrites({ env: "dev" });
+  },
+};
+
+export default nextConfig;
+```
+
+### 4. Angular CLI (`proxy.conf.js`)
+
+```javascript
+// proxy.conf.js
+const { getAngularProxy } = require("@kodall/kodall-deploy");
+
+module.exports = getAngularProxy({ env: "dev" });
+```
+
+### Proxy Options Reference
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `env` | `string` | `default_env` | Target environment name from `kodall-webapp.config.json`. |
+| `instance` | `string` | `env.instance` | Explicit instance URL override (e.g. `https://dev.kodall.ro`). |
+| `proxyPaths` | `string[]` | `["/auth", "/rest", "/storage"]` | Subpath prefixes to forward to the Kodall instance. |
+| `changeOrigin` | `boolean` | `true` | Change the origin of the host header to the target URL. |
+| `secure` | `boolean` | `false` | Verify SSL certificates for local development. |
+| `configPath` | `string` | `./kodall-webapp.config.json` | Path to custom configuration file. |
+
+---
+[↑ back to top](#kodall-deploy)
+
 ## CI / CD Pipeline Integration (`--init-ci`)
+
 
 Run `npx kodall-deploy --init-ci` to automatically generate ready-to-use workflows for your CI platform.
 
@@ -542,7 +626,12 @@ import type {
   DetectedProject,
   BuildCheckResult,
   HealthCheckResult,
-} from "kodall-deploy";
+  ProxyOptions,
+  ResolvedProxyConfig,
+  HttpProxyRule,
+  NextRewriteRule,
+} from "@kodall/kodall-deploy";
+
 ```
 
 ---
