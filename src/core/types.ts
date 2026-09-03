@@ -23,6 +23,7 @@ export interface WebAppConfigFile {
   web_app_path?: string;
   dist_path?: string;
   default_env?: string;
+  default_proxy_env?: string;
   proxy_paths?: string[];
   environments?: Record<string, EnvironmentConfig>;
 }
@@ -55,6 +56,7 @@ export interface ProxyOptions {
   proxyPaths?: string[];
   changeOrigin?: boolean;
   secure?: boolean;
+  reloadOnConfigChange?: boolean;
 }
 
 /**
@@ -66,6 +68,7 @@ export interface ResolvedProxyConfig {
   proxyPaths: string[];
   changeOrigin: boolean;
   secure: boolean;
+  isLocalOverride?: boolean;
 }
 
 /**

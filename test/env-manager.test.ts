@@ -4,9 +4,12 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG_FILENAME } from "../src/core/config.js";
 import {
+  clearActiveEnvironment,
   cloneEnvironment,
+  getActiveEnvironment,
   listEnvironments,
   removeEnvironment,
+  setActiveEnvironment,
   setDefaultEnvironment,
 } from "../src/core/env-manager.js";
 
@@ -207,5 +210,57 @@ describe("Environment Manager", () => {
 
     expect(() => setDefaultEnvironment("unknown", configPath, tempDir)).toThrow("not found");
     expect(() => setDefaultEnvironment("dev", "missing.json", tempDir)).toThrow("does not exist");
+  });
+
+  describe("Active Proxy Environment State Isolation", () => {
+    it("should set and get local active environment without modifying config file", () => {
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          default_env: "dev",
+          environments: {
+            dev: { instance: "https://dev.kodall.ro" },
+            staging: { instance: "https://staging.kodall.ro" },
+          },
+        }),
+        "utf-8"
+      );
+
+      expect(getActiveEnvironment(tempDir)).toBeUndefined();
+
+      setActiveEnvironment("staging", tempDir, configPath);
+      expect(getActiveEnvironment(tempDir)).toBe("staging");
+
+      // Verify kodall-webapp.config.json is NOT modified (clean git!)
+      const configRaw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      expect(configRaw.default_env).toBe("dev");
+
+      // listEnvironments should report isActiveProxy true for staging and isDefault true for dev
+      const list = listEnvironments(configPath, tempDir);
+      const dev = list.find((e) => e.name === "dev");
+      const staging = list.find((e) => e.name === "staging");
+      expect(dev?.isDefault).toBe(true);
+      expect(dev?.isActiveProxy).toBe(false);
+      expect(staging?.isDefault).toBe(false);
+      expect(staging?.isActiveProxy).toBe(true);
+
+      // Clear active env
+      clearActiveEnvironment(tempDir);
+      expect(getActiveEnvironment(tempDir)).toBeUndefined();
+    });
+
+    it("should throw error when setting active env to non-existent environment", () => {
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          environments: {
+            dev: { instance: "https://dev.kodall.ro" },
+          },
+        }),
+        "utf-8"
+      );
+
+      expect(() => setActiveEnvironment("ghost", tempDir, configPath)).toThrow("not found");
+    });
   });
 });

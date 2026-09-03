@@ -21,10 +21,13 @@ import { KodallNodeClient } from "./client/kodall-node-client.js";
 import { DEFAULT_OAUTH_PORT, executeBrowserOAuthLogin } from "./client/pkce-auth.js";
 import { isProblem } from "./client/types.js";
 import {
+  clearActiveEnvironment,
   cloneEnvironment,
   EnvironmentInfo,
+  getActiveEnvironment,
   listEnvironments,
   removeEnvironment,
+  setActiveEnvironment,
   setDefaultEnvironment,
 } from "./core/env-manager.js";
 import { getDeploymentHistory } from "./core/history.js";
@@ -55,7 +58,7 @@ ${bold("USAGE:")}
   $ npx kodall-deploy [command] [options]
 
 ${bold("COMMANDS:")}
-  use [env]                 Set active default deployment & dev proxy environment
+  use [env]                 Set active local dev proxy environment (untracked)
   switch [env]              Alias for 'use'
 
 ${bold("OPTIONS:")}
@@ -75,10 +78,13 @@ ${bold("OPTIONS:")}
   -c, --config <file>       Path to config file [default: kodall-webapp.config.json]
   -l, --list-envs           List all configured environments in a table
   -s, --status [env]        Display live status & health dashboard for environment(s)
+      --use [name]          Set active local dev proxy environment (untracked)
+      --clear-active        Clear active local dev proxy environment override
       --add-env [name]      Add or update an environment in kodall-webapp.config.json
       --remove-env [name]   Remove an environment from configuration
       --clone-env <src> [dst] Duplicate/clone an existing environment
-      --set-default <name>  Set default deployment & dev proxy environment
+      --set-default <name>  Set default deployment environment in config file
+      --save-config         When using 'use', also save as default in config file
   -H, --history             Display deployment history for environment(s)
   -R, --rollback [storage]  Roll back web application to a previous storage build
       --build               Force running "npm run build" before deploying
@@ -106,8 +112,9 @@ ${bold("ENVIRONMENT VARIABLES:")}
   KODALL_CLIENT_ID, ONE_CLIENT_ID   OAuth Client ID
 
 ${bold("EXAMPLES:")}
-  $ kodall-deploy use staging       # Switch active default environment to staging
-  $ kodall-deploy use               # Interactively select active environment
+  $ kodall-deploy use staging       # Switch local dev proxy to staging (clean git)
+  $ kodall-deploy use               # Interactively select active proxy environment
+  $ kodall-deploy --set-default dev # Set default deployment environment in config file
   $ kodall-deploy -l                # List all configured environments
   $ kodall-deploy                   # Interactive deployment menu
   $ kodall-deploy -e prod           # Deploy to production environment
@@ -160,12 +167,15 @@ async function main() {
   let cloneTarget: string | undefined;
   let explicitSetDefault = false;
   let setDefaultEnvName: string | undefined;
+  let explicitUse = false;
+  let useEnvName: string | undefined;
+  let explicitClearActive = false;
 
   if (rawArgs[0] === "use" || rawArgs[0] === "switch" || rawArgs[0] === "set-env") {
     rawArgs.shift();
     const target = rawArgs[0] && !rawArgs[0].startsWith("-") ? rawArgs.shift() : undefined;
-    setDefaultEnvName = target;
-    explicitSetDefault = true;
+    useEnvName = target;
+    explicitUse = true;
   }
 
   const args: string[] = [];
@@ -252,6 +262,24 @@ async function main() {
       explicitSetDefault = true;
       continue;
     }
+    if (arg === "--use") {
+      const nextArg = rawArgs[i + 1];
+      if (nextArg && !nextArg.startsWith("-")) {
+        useEnvName = nextArg;
+        i++;
+      }
+      explicitUse = true;
+      continue;
+    }
+    if (arg.startsWith("--use=")) {
+      useEnvName = arg.split("=")[1];
+      explicitUse = true;
+      continue;
+    }
+    if (arg === "--clear-active") {
+      explicitClearActive = true;
+      continue;
+    }
     if (arg === "-H" || arg === "--history") {
       explicitHistory = true;
       continue;
@@ -310,10 +338,14 @@ async function main() {
     config: { type: "string" as const, short: "c" },
     "list-envs": { type: "boolean" as const, short: "l", default: false },
     status: { type: "string" as const, short: "s" },
+    use: { type: "string" as const },
+    "clear-active": { type: "boolean" as const, default: false },
     "add-env": { type: "string" as const },
     "remove-env": { type: "string" as const },
     "clone-env": { type: "string" as const },
     "set-default": { type: "string" as const },
+    "save-config": { type: "boolean" as const, default: false },
+    global: { type: "boolean" as const, default: false },
     history: { type: "boolean" as const, short: "H", default: false },
     rollback: { type: "string" as const, short: "R" },
     build: { type: "boolean" as const, default: false },
@@ -373,6 +405,19 @@ async function main() {
   // Handle --list-envs command
   if (flags["list-envs"] || explicitListEnvs) {
     await handleListEnvs(configPath);
+    return;
+  }
+
+  // Handle --clear-active command
+  if (flags["clear-active"] || explicitClearActive) {
+    await handleClearActive();
+    return;
+  }
+
+  // Handle use / switch command (local proxy active env)
+  if (flags.use !== undefined || explicitUse) {
+    const target = useEnvName || flags.use || undefined;
+    await handleUseEnv(configPath, target, Boolean(flags["save-config"] || flags.global));
     return;
   }
 
@@ -1753,10 +1798,11 @@ function displayEnvsTable(envs: EnvironmentInfo[]): void {
     "  " +
       dim(
         pad("DEFAULT", 10) +
-        pad("ENV NAME", 18) +
-        pad("TYPE", 14) +
-        pad("AUTH", 14) +
-        pad("ROUTE PATH", 24) +
+        pad("PROXY", 8) +
+        pad("ENV NAME", 16) +
+        pad("TYPE", 12) +
+        pad("AUTH", 12) +
+        pad("ROUTE PATH", 20) +
         "INSTANCE URL"
       )
   );
@@ -1764,7 +1810,12 @@ function displayEnvsTable(envs: EnvironmentInfo[]): void {
 
   for (const env of envs) {
     const defaultTag = env.isDefault ? green(bold("  ★")) : "";
-    const nameStr = env.isDefault ? bold(cyan(env.name)) : bold(env.name);
+    const proxyTag = env.isActiveProxy ? cyan(bold("  ▶")) : "";
+    const nameStr = env.isActiveProxy
+      ? bold(cyan(env.name))
+      : env.isDefault
+      ? bold(env.name)
+      : env.name;
     const typeStr =
       env.type === "prod"
         ? red(env.type)
@@ -1779,14 +1830,15 @@ function displayEnvsTable(envs: EnvironmentInfo[]): void {
     console.log(
       "  " +
         pad(defaultTag, 10) +
-        pad(nameStr, 18) +
-        pad(typeStr, 14) +
-        pad(authStr, 14) +
-        pad(routeStr, 24) +
+        pad(proxyTag, 8) +
+        pad(nameStr, 16) +
+        pad(typeStr, 12) +
+        pad(authStr, 12) +
+        pad(routeStr, 20) +
         dim(instanceStr)
     );
   }
-  console.log("");
+  console.log(dim("\n  Legend: ★ = Default Deployment Target, ▶ = Active Local Dev Proxy\n"));
 }
 
 async function handleListEnvs(configPath: string) {
@@ -1961,6 +2013,54 @@ async function handleCloneEnv(configPath: string, sourceName?: string, targetNam
   log.success(`Environment "${dst}" created (cloned from "${src}") in ${configPath}!`);
 }
 
+async function handleClearActive() {
+  clearActiveEnvironment(process.cwd());
+  log.success("Cleared local dev proxy environment override. Reverted to config default.");
+}
+
+async function handleUseEnv(configPath: string, envName?: string, saveConfig = false) {
+  const { fileExists, config } = loadConfigFile(configPath);
+  if (!fileExists || !config.environments || Object.keys(config.environments).length === 0) {
+    log.error(`No environments found in ${configPath}`);
+    return;
+  }
+
+  const envKeys = Object.keys(config.environments);
+  let target = envName;
+  if (!target) {
+    const activeLocal = getActiveEnvironment(process.cwd());
+    const choices = envKeys.map((k) => {
+      const inst = config.environments?.[k]?.instance || "";
+      const tags: string[] = [];
+      if (k === config.default_env) tags.push("deploy default");
+      if (k === (activeLocal || config.default_env)) tags.push("active proxy");
+      const tagStr = tags.length > 0 ? ` [${tags.join(", ")}]` : "";
+      return inst ? `${k} (${inst})${tagStr}` : `${k}${tagStr}`;
+    });
+    const currentActive = activeLocal || config.default_env;
+    const defaultIdx = currentActive ? Math.max(0, envKeys.indexOf(currentActive)) : 0;
+    const selected = await askSelect("Select active development & proxy environment", choices, defaultIdx);
+    const selectedIdx = choices.indexOf(selected);
+    target = envKeys[selectedIdx];
+  }
+
+  if (!config.environments[target]) {
+    log.error(`Environment "${target}" does not exist in ${configPath}. Available: ${envKeys.join(", ")}`);
+    return;
+  }
+
+  setActiveEnvironment(target, process.cwd(), configPath);
+  if (saveConfig) {
+    setDefaultEnvironment(target, configPath);
+  }
+
+  const targetInstance = config.environments[target]?.instance || "";
+  const modeNote = saveConfig ? " (saved to config file)" : " (local dev override)";
+  log.success(
+    `Active proxy environment set to ${bold(cyan(`"${target}"`))}${targetInstance ? ` (${magenta(targetInstance)})` : ""}${dim(modeNote)}`
+  );
+}
+
 async function handleSetDefault(configPath: string, envName?: string) {
   const { fileExists, config } = loadConfigFile(configPath);
   if (!fileExists || !config.environments || Object.keys(config.environments).length === 0) {
@@ -1976,7 +2076,7 @@ async function handleSetDefault(configPath: string, envName?: string) {
       return inst ? `${k} (${inst})` : k;
     });
     const defaultIdx = config.default_env ? Math.max(0, envKeys.indexOf(config.default_env)) : 0;
-    const selected = await askSelect("Select active development environment", choices, defaultIdx);
+    const selected = await askSelect("Select default deployment environment (saved in config file)", choices, defaultIdx);
     const selectedIdx = choices.indexOf(selected);
     target = envKeys[selectedIdx];
   }
@@ -1989,7 +2089,7 @@ async function handleSetDefault(configPath: string, envName?: string) {
   setDefaultEnvironment(target, configPath);
   const targetInstance = config.environments[target]?.instance || "";
   log.success(
-    `Active environment set to ${bold(cyan(`"${target}"`))}${targetInstance ? ` (${magenta(targetInstance)})` : ""}`
+    `Default deployment environment set to ${bold(cyan(`"${target}"`))}${targetInstance ? ` (${magenta(targetInstance)})` : ""} in ${configPath}`
   );
 }
 
@@ -1997,10 +2097,11 @@ async function handleManageEnvs(configPath: string) {
   const BACK_OPTION = "Back";
   const choices = [
     "List configured environments",
+    "Switch active proxy environment (local override)",
+    "Set default deployment environment (config file)",
     "Add or edit an environment",
     "Remove an environment",
     "Clone / duplicate an environment",
-    "Set default environment",
     BACK_OPTION,
   ];
 
@@ -2010,14 +2111,16 @@ async function handleManageEnvs(configPath: string) {
       break;
     } else if (action === "List configured environments") {
       await handleListEnvs(configPath);
+    } else if (action === "Switch active proxy environment (local override)") {
+      await handleUseEnv(configPath);
+    } else if (action === "Set default deployment environment (config file)") {
+      await handleSetDefault(configPath);
     } else if (action === "Add or edit an environment") {
       await handleAddEnv(configPath);
     } else if (action === "Remove an environment") {
       await handleRemoveEnv(configPath);
     } else if (action === "Clone / duplicate an environment") {
       await handleCloneEnv(configPath);
-    } else if (action === "Set default environment") {
-      await handleSetDefault(configPath);
     }
   }
 }

@@ -284,22 +284,29 @@ npx kodall-deploy -e prod --dry-run
 
 ## Environment Management
 
-Manage environments without manually editing JSON files:
+Manage environments and switch dev proxy targets without manually editing JSON files:
 
 ```bash
-# List all configured environments with default indicator, type, and auth mode
+# 1. Switch active local dev proxy environment (untracked in git, keeps config clean)
+npx kodall-deploy use staging
+npx kodall-deploy switch dev
+
+# 2. Clear local dev proxy override (revert to config default)
+npx kodall-deploy --clear-active
+
+# 3. List all configured environments with default & active proxy indicators
 npx kodall-deploy --list-envs
 
-# Add or update an environment
-npx kodall-deploy --add-env uat
-
-# Clone / duplicate an existing environment
-npx kodall-deploy --clone-env dev dev2
-
-# Set default deployment environment
+# 4. Set global default deployment environment in config file
 npx kodall-deploy --set-default prod
 
-# Remove an environment
+# 5. Add or update an environment
+npx kodall-deploy --add-env uat
+
+# 6. Clone / duplicate an existing environment
+npx kodall-deploy --clone-env dev dev2
+
+# 7. Remove an environment
 npx kodall-deploy --remove-env dev2
 ```
 

@@ -35,6 +35,11 @@ export {
   removeEnvironment,
   cloneEnvironment,
   setDefaultEnvironment,
+  getActiveEnvironment,
+  setActiveEnvironment,
+  clearActiveEnvironment,
+  getActiveEnvFilePath,
+  ACTIVE_ENV_FILENAME,
   type EnvironmentInfo,
 } from "./core/env-manager.js";
 export {

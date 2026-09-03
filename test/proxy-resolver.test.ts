@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { DEFAULT_CONFIG_FILENAME } from "../src/core/config.js";
+import { setActiveEnvironment } from "../src/core/env-manager.js";
 import {
   DEFAULT_PROXY_PATHS,
   matchesProxyPath,
@@ -9,7 +11,6 @@ import {
   normalizeUrl,
   resolveProxyConfig,
 } from "../src/core/proxy-resolver.js";
-import { DEFAULT_CONFIG_FILENAME } from "../src/core/config.js";
 
 describe("proxy-resolver", () => {
   let tmpDir: string;
@@ -217,6 +218,47 @@ describe("proxy-resolver", () => {
 
       const result = resolveProxyConfig({ cwd: tmpDir, env: "emptyEnv" });
       expect(result.instanceUrl).toBe("https://prod.kodall.io");
+    });
+
+    it("resolves local active environment override from .kodall-deploy/active-env over default_env", () => {
+      const config = {
+        default_env: "dev",
+        environments: {
+          dev: { instance: "https://dev.kodall.io" },
+          staging: { instance: "https://staging.kodall.io" },
+        },
+      };
+      fs.writeFileSync(
+        path.join(tmpDir, DEFAULT_CONFIG_FILENAME),
+        JSON.stringify(config, null, 2)
+      );
+
+      // Set local active proxy override to staging
+      setActiveEnvironment("staging", tmpDir, path.join(tmpDir, DEFAULT_CONFIG_FILENAME));
+
+      const result = resolveProxyConfig({ cwd: tmpDir });
+      expect(result.instanceUrl).toBe("https://staging.kodall.io");
+      expect(result.envName).toBe("staging");
+      expect(result.isLocalOverride).toBe(true);
+    });
+
+    it("respects default_proxy_env when set in config file over default_env", () => {
+      const config = {
+        default_env: "prod",
+        default_proxy_env: "staging",
+        environments: {
+          prod: { instance: "https://app.kodall.io" },
+          staging: { instance: "https://staging.kodall.io" },
+        },
+      };
+      fs.writeFileSync(
+        path.join(tmpDir, DEFAULT_CONFIG_FILENAME),
+        JSON.stringify(config, null, 2)
+      );
+
+      const result = resolveProxyConfig({ cwd: tmpDir });
+      expect(result.instanceUrl).toBe("https://staging.kodall.io");
+      expect(result.envName).toBe("staging");
     });
 
     it("should handle normalizeUrl with empty string and matchesProxyPath edge cases", () => {

@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { DEFAULT_CONFIG_FILENAME, loadConfigFile } from "./config.js";
+import { getActiveEnvironment } from "./env-manager.js";
 import { ProxyOptions, ResolvedProxyConfig } from "./types.js";
 
 export const DEFAULT_PROXY_PATHS = ["/auth", "/rest", "/storage"];
@@ -40,11 +41,20 @@ export function resolveProxyConfig(options: ProxyOptions = {}): ResolvedProxyCon
   const { config: configFile } = loadConfigFile(configPath, cwd);
 
   // 1. Resolve Target Environment Name
+  const localActiveEnv = getActiveEnvironment(cwd);
   let envName =
     options.env ||
     process.env.KODALL_ENV ||
     process.env.ONE_ENV ||
+    localActiveEnv ||
+    configFile?.default_proxy_env ||
     configFile?.default_env;
+
+  const isLocalOverride =
+    !options.env &&
+    !process.env.KODALL_ENV &&
+    !process.env.ONE_ENV &&
+    Boolean(localActiveEnv);
 
   if (!envName && configFile?.environments) {
     const envKeys = Object.keys(configFile.environments);
@@ -113,6 +123,7 @@ export function resolveProxyConfig(options: ProxyOptions = {}): ResolvedProxyCon
     proxyPaths: Array.from(pathsSet),
     changeOrigin: options.changeOrigin !== false,
     secure: options.secure !== false,
+    isLocalOverride,
   };
 }
 

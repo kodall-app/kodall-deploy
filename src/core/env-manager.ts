@@ -1,15 +1,81 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { DEFAULT_CONFIG_FILENAME, loadConfigFile, saveConfigFile } from "./config.js";
+import { ensureGitIgnoreEntry, getHistoryDir } from "./history.js";
 import type { EnvironmentConfig, WebAppConfigFile } from "./types.js";
+
+export const ACTIVE_ENV_FILENAME = "active-env";
 
 export interface EnvironmentInfo {
   name: string;
   isDefault: boolean;
+  isActiveProxy?: boolean;
   type: string;
   instance: string;
   webAppName: string;
   webAppPath: string;
   distPath: string;
   hasApiKey: boolean;
+}
+
+/**
+ * Resolve path to the active-env file in the local state directory (.kodall-deploy/active-env)
+ */
+export function getActiveEnvFilePath(cwd: string = process.cwd()): string {
+  return path.resolve(getHistoryDir(cwd), ACTIVE_ENV_FILENAME);
+}
+
+/**
+ * Returns the locally active proxy environment from .kodall-deploy/active-env if set
+ */
+export function getActiveEnvironment(cwd: string = process.cwd()): string | undefined {
+  const filePath = getActiveEnvFilePath(cwd);
+  if (fs.existsSync(filePath)) {
+    try {
+      const content = fs.readFileSync(filePath, "utf-8").trim();
+      return content || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Sets the locally active proxy environment in .kodall-deploy/active-env without mutating kodall-webapp.config.json
+ */
+export function setActiveEnvironment(
+  envName: string,
+  cwd: string = process.cwd(),
+  configPath: string = DEFAULT_CONFIG_FILENAME
+): void {
+  const { fileExists, config } = loadConfigFile(configPath, cwd);
+  if (fileExists && config.environments && Object.keys(config.environments).length > 0) {
+    if (!config.environments[envName]) {
+      const available = Object.keys(config.environments).join(", ");
+      throw new Error(`Environment "${envName}" not found in ${configPath}. Available: ${available}`);
+    }
+  }
+
+  ensureGitIgnoreEntry(cwd);
+  const dir = getHistoryDir(cwd);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const filePath = getActiveEnvFilePath(cwd);
+  fs.writeFileSync(filePath, envName.trim(), "utf-8");
+}
+
+/**
+ * Clears the locally active proxy environment override
+ */
+export function clearActiveEnvironment(cwd: string = process.cwd()): void {
+  const filePath = getActiveEnvFilePath(cwd);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch {}
+  }
 }
 
 /**
@@ -24,6 +90,7 @@ export function listEnvironments(
   const globalPath = config.web_app_path || (globalName.startsWith("/") ? globalName : `/${globalName}`);
   const globalDist = config.dist_path || "./dist";
   const defaultEnv = config.default_env;
+  const activeProxyEnv = getActiveEnvironment(cwd) || config.default_proxy_env || defaultEnv;
 
   const result: EnvironmentInfo[] = [];
 
@@ -45,10 +112,12 @@ export function listEnvironments(
       const distPath = envData.dist_path || globalDist;
       const hasApiKey = Boolean(envData.api_key);
       const isDefault = name === defaultEnv;
+      const isActiveProxy = name === activeProxyEnv;
 
       result.push({
         name,
         isDefault,
+        isActiveProxy,
         type,
         instance,
         webAppName,
