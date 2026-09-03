@@ -2,7 +2,19 @@
 
 A fast, modern CLI tool and TypeScript library to package, bundle, and deploy web applications to Kodall instances with multi-environment support, framework auto-detection, instant rollbacks, live health monitoring, and zero runtime dependencies.
 
-[**Explore the docs »**](https://developer.oneerp.ro/)
+---
+
+### Official Documentation
+
+Explore the complete guides and API reference at [**docs.kodall.io**](https://docs.kodall.io):
+
+| Documentation Section | Topics & Headers Covered | Direct Link |
+| :--- | :--- | :--- |
+| **CLI & Tooling Reference** | [Installation](https://docs.kodall.io/sdk/web-app-deployment/kodall-deploy#installation) • [Quickstart (`--init`)](https://docs.kodall.io/sdk/web-app-deployment/kodall-deploy#quickstart---init) • [Framework Auto-Detection](https://docs.kodall.io/sdk/web-app-deployment/kodall-deploy#framework-auto-detection) • [Environment Management Suite](https://docs.kodall.io/sdk/web-app-deployment/kodall-deploy#environment-management-suite) • [Configuration Reference (`kodall-webapp.config.json`)](https://docs.kodall.io/sdk/web-app-deployment/kodall-deploy#configuration-reference-kodall-webappconfigjson) • [CLI Options Reference](https://docs.kodall.io/sdk/web-app-deployment/kodall-deploy#cli-options-reference) | [**Read CLI Guide →**](https://docs.kodall.io/sdk/web-app-deployment/kodall-deploy) |
+| **Local Dev Proxy Suite** | [Architecture Principles](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#architecture-principles) • [3-Layer Proxy Architecture](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#3-layer-proxy-architecture) • [Target Resolution Precedence](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#target-resolution-precedence) • [Vite Integration](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#1-vite-vue-3-react-sveltekit-solidjs) • [Nuxt Integration](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#2-nuxt-3--nuxt-4) • [Next.js Integration](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#3-nextjs) • [Angular CLI Integration](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#4-angular-cli) • [Custom Proxy Paths (`proxy_paths`)](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#custom-proxy-paths-proxy_paths) • [Ad-Hoc Overrides](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#ad-hoc-environment-overrides) • [`ProxyOptions` Reference](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy#proxyoptions-reference) | [**Read Proxy Guide →**](https://docs.kodall.io/sdk/web-app-deployment/local-dev-proxy) |
+| **CI/CD & Automation** | [CI/CD Pipeline Generator (`--init-ci`)](https://docs.kodall.io/sdk/web-app-deployment/ci-cd-automation#cicd-workflow-generator---init-ci) • [Live Status & Health Inspection (`--status`)](https://docs.kodall.io/sdk/web-app-deployment/ci-cd-automation#live-status--health-inspection---status) • [Deployment History & Rollbacks (`--rollback`)](https://docs.kodall.io/sdk/web-app-deployment/ci-cd-automation#deployment-history--instant-rollbacks---rollback) • [Programmatic TypeScript API](https://docs.kodall.io/sdk/web-app-deployment/ci-cd-automation#programmatic-typescript-api) • [TypeScript Types Export](https://docs.kodall.io/sdk/web-app-deployment/ci-cd-automation#typescript-types-export) | [**Read CI/CD Guide →**](https://docs.kodall.io/sdk/web-app-deployment/ci-cd-automation) |
+
+---
 
 ## Table of Contents
 
@@ -36,19 +48,19 @@ A fast, modern CLI tool and TypeScript library to package, bundle, and deploy we
 
 ## Features
 
-* ⚡ **Framework Auto-Detection**: Instant zero-config setup detecting Vite, Next.js, Nuxt, Vue, Angular, SvelteKit, Remix, Astro, and Static HTML.
-* 🔄 **Local Development Proxy & Vite Plugin**: Zero-config API reverse proxy forwarding `/auth`, `/rest`, and `/storage` directly to your target Kodall instance with cookie & CORS handling.
-* 🔨 **Stale & Missing Build Detection**: Checks if source code was modified after the last build and offers one-click rebuild before deploying.
-* 🩺 **Post-Deploy Live Health Check**: Automatically pings your live endpoint after deploy to verify `200 OK` status and display server latency.
-* 📜 **Deployment History & Instant Rollback**: Sub-second rollback to any previous storage build (`--rollback`) with zero rebuild or re-upload.
-* ⚙️ **Environment Management Suite**: Add, remove, clone, list, and set default environments directly from CLI flags or interactive menus.
-* 📊 **Live Remote Status Dashboard**: Inspect live server availability, active storage IDs, and response latency across all instances simultaneously (`--status`).
-* 🤖 **CI/CD Workflow Generator**: Generate ready-to-run automated pipeline files for GitHub Actions, GitLab CI, Bitbucket Pipelines, Jenkins, Azure DevOps, CircleCI, or AWS CodeBuild (`--init-ci`).
-* 🌍 **Multi-Environment Batch Deployments**: Deploy to specific environments (`-e dev,staging`), categories (`--type prod`), or all servers sequentially (`--all`).
-* 🔐 **Flexible Authentication**: Supports API Key tokens, OAuth 2.0 PKCE browser login, and Username/Password with automatic session and CSRF handling.
-* 🧪 **Dry-Run Mode**: Test configurations, authentication, and server routes without uploading or mutating files (`--dry-run`).
-* 🛡️ **Zero Workspace Pollution**: Temp archives are created in OS temporary folders and cleaned up automatically.
-* 📦 **CLI & Library**: Use as an interactive or headless CLI (`npx kodall-deploy`) or import as a TypeScript/ESM/CJS library.
+- **Framework Auto-Detection**: Instant zero-config setup detecting Vite, Next.js, Nuxt, Vue, Angular, SvelteKit, Remix, Astro, and Static HTML.
+- **Local Development Proxy & Vite Plugin**: Zero-config API reverse proxy forwarding `/auth`, `/rest`, and `/storage` directly to your target Kodall instance with cookie and CORS handling.
+- **Stale & Missing Build Detection**: Checks if source code was modified after the last build and offers one-click rebuild before deploying.
+- **Post-Deploy Live Health Check**: Automatically pings your live endpoint after deploy to verify `200 OK` status and display server latency.
+- **Deployment History & Instant Rollback**: Sub-second rollback to any previous storage build (`--rollback`) with zero rebuild or re-upload.
+- **Environment Management Suite**: Add, remove, clone, list, and set default environments directly from CLI flags or interactive menus.
+- **Live Remote Status Dashboard**: Inspect live server availability, active storage IDs, and response latency across all instances simultaneously (`--status`).
+- **CI/CD Workflow Generator**: Generate ready-to-run automated pipeline files for GitHub Actions, GitLab CI, Bitbucket Pipelines, Jenkins, Azure DevOps, CircleCI, or AWS CodeBuild (`--init-ci`).
+- **Multi-Environment Batch Deployments**: Deploy to specific environments (`-e dev,staging`), categories (`--type prod`), or all servers sequentially (`--all`).
+- **Flexible Authentication**: Supports API Key tokens, OAuth 2.0 PKCE browser login, and Username/Password with automatic session and CSRF handling.
+- **Dry-Run Mode**: Test configurations, authentication, and server routes without uploading or mutating files (`--dry-run`).
+- **Zero Workspace Pollution**: Temporary archives are created in OS temporary directories and cleaned up automatically.
+- **CLI & Library**: Use as an interactive or headless CLI (`npx kodall-deploy`) or import as a TypeScript/ESM/CJS library.
 
 
 ---
@@ -325,7 +337,7 @@ npx kodall-deploy --status prod
 
 Output:
 ```text
-📊 Live Remote Environment Status:
+Live Remote Environment Status:
 
   DEFAULT   ENV NAME        HEALTH          HTTP CODE       LATENCY     STORAGE ID    ENTITY KEY    ROUTE PATH          INSTANCE URL
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
