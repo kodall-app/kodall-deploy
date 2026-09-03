@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG_FILENAME } from "../src/core/config.js";
 import {
   createNextProxyHandler,
@@ -164,14 +164,43 @@ describe("proxy-helpers", () => {
     });
   });
 
-  describe("createNextProxyHandler", () => {
-    it("returns route handlers mapping with GET, POST, and handler methods", () => {
+  describe("createNextProxyHandler execution", () => {
+    it("handles incoming request by proxying to target with fetch", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "application/json" },
+        })
+      );
+      vi.stubGlobal("fetch", mockFetch);
+
       const routeHandlers = createNextProxyHandler(options);
-      expect(typeof routeHandlers.GET).toBe("function");
-      expect(typeof routeHandlers.POST).toBe("function");
-      expect(typeof routeHandlers.PUT).toBe("function");
-      expect(typeof routeHandlers.DELETE).toBe("function");
-      expect(typeof routeHandlers.handler).toBe("function");
+      const req = new Request("http://localhost:3000/rest/users?page=1", {
+        method: "POST",
+        headers: { authorization: "Bearer xyz" },
+        body: JSON.stringify({ name: "Alice" }),
+      });
+
+      const res = await routeHandlers.POST(req);
+      expect(res.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalled();
+
+      const getReq = new Request("http://localhost:3000/rest/ping", { method: "GET" });
+      const getRes = await routeHandlers.GET(getReq);
+      expect(getRes.status).toBe(200);
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe("kodallProxyNuxt with absolute path", () => {
+    it("handles absolute configPath correctly", () => {
+      const absConfigPath = path.resolve(process.cwd(), "custom-config.json");
+      const moduleFn = kodallProxyNuxt({ configPath: absConfigPath, instance: "https://dev.kodall.io" });
+      const nuxt = { options: { watch: [], nitro: {} } };
+      moduleFn({}, nuxt);
+      expect(nuxt.options.watch).toContain(absConfigPath);
     });
   });
 

@@ -262,5 +262,13 @@ describe("Environment Manager", () => {
 
       expect(() => setActiveEnvironment("ghost", tempDir, configPath)).toThrow("not found");
     });
+
+    it("should return undefined if readFileSync throws error", () => {
+      const activeFile = path.join(tempDir, ".kodall-deploy", "active-env");
+      // Creating a directory where a file is expected causes readFileSync to throw EISDIR
+      fs.mkdirSync(activeFile, { recursive: true });
+
+      expect(getActiveEnvironment(tempDir)).toBeUndefined();
+    });
   });
 });

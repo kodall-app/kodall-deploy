@@ -114,7 +114,7 @@ export async function handleDeployCommand(
   }
 
   // If running interactively with no explicit target flags, show the main deployment menu
-  if (!isCi && !flags.env && !flags.type && !flags.all && !flags.instance) {
+  if (!isCi && !selectedEnv && !selectedType && !selectedAll && !flags.instance) {
     if (fileExists && loadedConfig.environments && Object.keys(loadedConfig.environments).length > 0) {
       const envKeys = Object.keys(loadedConfig.environments);
       const menuChoices = [

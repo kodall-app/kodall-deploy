@@ -10,7 +10,12 @@ vi.mock("archiver", () => {
     default: () => {
       const ee = new EventEmitter();
       let stream: any = null;
-      (ee as any).pointer = vi.fn(() => 100);
+      (ee as any).pointer = vi.fn(() => {
+        if (emitCloseError) {
+          throw new Error("Pointer read failed");
+        }
+        return 100;
+      });
       (ee as any).pipe = vi.fn((s) => {
         stream = s;
       });
@@ -22,18 +27,6 @@ vi.mock("archiver", () => {
         }
 
         if (emitCloseError) {
-          const fsMod = require("node:fs");
-          const osMod = require("node:os");
-          // remove all tmp zip files to make readFileSync fail
-          const tmpDir = osMod.tmpdir();
-          const files = fsMod.readdirSync(tmpDir);
-          for (const f of files) {
-            if (f.startsWith("kodall-deploy-") && f.endsWith(".zip")) {
-              try {
-                fsMod.unlinkSync(require("node:path").join(tmpDir, f));
-              } catch {}
-            }
-          }
           process.nextTick(() => stream?.emit("close"));
           return;
         }
@@ -67,7 +60,7 @@ describe("Archiver events", () => {
     await expect(createArchive(".")).rejects.toThrow("Generic archiver warning");
   });
 
-  it("should reject when readFileSync throws inside close listener", async () => {
+  it("should reject when error occurs inside close listener", async () => {
     emitCloseError = true;
     const { createArchive } = await import("../src/core/archiver.js");
     await expect(createArchive(".")).rejects.toThrow();

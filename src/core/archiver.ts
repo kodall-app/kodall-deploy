@@ -23,7 +23,7 @@ export async function createArchive(
 
   const compressionLevel = options.level ?? 9;
 
-  const tempFileName = `kodall-deploy-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.zip`;
+  const tempFileName = `kodall-deploy-${Date.now()}-${crypto.randomUUID()}.zip`;
   const tempFilePath = path.join(os.tmpdir(), tempFileName);
 
   return new Promise<ArchiveResult>((resolve, reject) => {

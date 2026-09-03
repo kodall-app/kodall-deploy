@@ -44,20 +44,16 @@ export async function handleInitCI(configPath: string): Promise<void> {
   const detectedPM = detectPackageManager(process.cwd());
 
   if (detectedProvider) {
-    const detectedName =
-      detectedProvider === "github"
-        ? "GitHub Actions"
-        : detectedProvider === "gitlab"
-        ? "GitLab CI"
-        : detectedProvider === "bitbucket"
-        ? "Bitbucket Pipelines"
-        : detectedProvider === "jenkins"
-        ? "Jenkins"
-        : detectedProvider === "azure"
-        ? "Azure DevOps"
-        : detectedProvider === "circleci"
-        ? "CircleCI"
-        : "AWS CodeBuild";
+    const PROVIDER_NAMES: Record<CIProvider, string> = {
+      github: "GitHub Actions",
+      gitlab: "GitLab CI",
+      bitbucket: "Bitbucket Pipelines",
+      jenkins: "Jenkins",
+      azure: "Azure DevOps",
+      circleci: "CircleCI",
+      aws: "AWS CodeBuild",
+    };
+    const detectedName = PROVIDER_NAMES[detectedProvider] || "CI Provider";
     console.log(dim(`  ${cyan("ℹ")} Detected existing CI configuration: ${bold(detectedName)}\n`));
   }
 

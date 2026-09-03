@@ -240,7 +240,7 @@ export function parseCliArgs(rawInput: string[] = process.argv.slice(2)): Parsed
     args.push(arg);
   }
 
-  let parsed: any;
+  let parsed: any = { values: {} };
   try {
     parsed = parseArgs({
       args,
