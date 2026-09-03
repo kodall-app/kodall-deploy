@@ -69,6 +69,7 @@ export {
   getNitroProxy,
   kodallProxyNuxt,
   getNextRewrites,
+  createNextProxyHandler,
   getAngularProxy,
   type HttpProxyRule,
   type NextRewriteRule,

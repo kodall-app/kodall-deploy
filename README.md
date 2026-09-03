@@ -387,10 +387,9 @@ export default defineNuxtConfig({
 });
 ```
 
-### 3. Next.js (`next.config.ts` / `next.config.js`)
+### 3. Next.js (`next.config.ts` or App Router Route Handler)
 
-Add API rewrites to `next.config.ts`:
-
+**Option A: Next.js Rewrites (`next.config.ts`)**
 ```typescript
 // next.config.ts
 import type { NextConfig } from "next";
@@ -403,6 +402,13 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+```
+
+**Option B: Dynamic Route Handler (`app/api/[...proxy]/route.ts` or `app/[...proxy]/route.ts`)**
+```typescript
+import { createNextProxyHandler } from "@kodall/kodall-deploy";
+
+export const { GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS } = createNextProxyHandler();
 ```
 
 ### 4. Angular CLI (`proxy.conf.js`)

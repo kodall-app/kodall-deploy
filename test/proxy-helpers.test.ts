@@ -1,5 +1,10 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG_FILENAME } from "../src/core/config.js";
 import {
+  createNextProxyHandler,
   getAngularProxy,
   getDevProxy,
   getNextRewrites,
@@ -15,29 +20,84 @@ describe("proxy-helpers", () => {
   };
 
   describe("getDevProxy & getViteProxy", () => {
-    it("returns correct proxy map for Vite", () => {
+    it("returns correct proxy map for Vite with dynamic router", () => {
       const proxy = getDevProxy(options);
-      expect(proxy["/auth"]).toEqual({
+      expect(proxy["/auth"]).toMatchObject({
         target: "https://dev.kodall.io",
         changeOrigin: true,
         secure: true,
       });
-      expect(proxy["/rest"]).toEqual({
+      expect(typeof proxy["/auth"].router).toBe("function");
+      expect(proxy["/auth"].router?.()).toBe("https://dev.kodall.io");
+
+      expect(proxy["/rest"]).toMatchObject({
         target: "https://dev.kodall.io",
         changeOrigin: true,
         secure: true,
       });
-      expect(proxy["/storage"]).toEqual({
+      expect(typeof proxy["/rest"].router).toBe("function");
+
+      expect(proxy["/storage"]).toMatchObject({
         target: "https://dev.kodall.io",
         changeOrigin: true,
         secure: true,
       });
-      expect(proxy["/web-assets"]).toEqual({
+      expect(typeof proxy["/storage"].router).toBe("function");
+
+      expect(proxy["/web-assets"]).toMatchObject({
         target: "https://dev.kodall.io",
         changeOrigin: true,
         secure: true,
       });
-      expect(getViteProxy(options)).toEqual(proxy);
+      expect(typeof proxy["/web-assets"].router).toBe("function");
+
+      const viteProxy = getViteProxy(options);
+      expect(viteProxy["/auth"]).toMatchObject({
+        target: "https://dev.kodall.io",
+        changeOrigin: true,
+        secure: true,
+      });
+      expect(typeof viteProxy["/auth"].router).toBe("function");
+    });
+
+    it("dynamically resolves target via router function without restarting", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kodall-dynamic-proxy-"));
+      try {
+        const configFile = path.join(tmpDir, DEFAULT_CONFIG_FILENAME);
+        fs.writeFileSync(
+          configFile,
+          JSON.stringify({
+            default_env: "dev",
+            environments: {
+              dev: { instance: "https://dev.instance.com" },
+              staging: { instance: "https://staging.instance.com" },
+            },
+          })
+        );
+
+        const proxy = getDevProxy({ cwd: tmpDir });
+        expect(typeof proxy["/auth"].router).toBe("function");
+        expect(proxy["/auth"].router?.()).toBe("https://dev.instance.com");
+
+        // Now change default_env in config file on disk (like `kodall-deploy use staging`)
+        fs.writeFileSync(
+          configFile,
+          JSON.stringify({
+            default_env: "staging",
+            environments: {
+              dev: { instance: "https://dev.instance.com" },
+              staging: { instance: "https://staging.instance.com" },
+            },
+          })
+        );
+
+        // Without recreating proxy table, router() dynamically returns staging URL immediately!
+        expect(proxy["/auth"].router?.()).toBe("https://staging.instance.com");
+      } finally {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {}
+      }
     });
   });
 
@@ -68,7 +128,7 @@ describe("proxy-helpers", () => {
   });
 
   describe("kodallProxyNuxt", () => {
-    it("attaches devProxy to Nuxt options object", () => {
+    it("attaches devProxy and watches config files in Nuxt options object", () => {
       const nuxtModule = kodallProxyNuxt(options);
       const mockNuxt: any = { options: {} };
       nuxtModule({}, mockNuxt);
@@ -77,6 +137,8 @@ describe("proxy-helpers", () => {
       expect(mockNuxt.options.nitro?.devProxy["/auth"].target).toBe(
         "https://dev.kodall.io/auth"
       );
+      expect(Array.isArray(mockNuxt.options.watch)).toBe(true);
+      expect(mockNuxt.options.watch.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -102,14 +164,26 @@ describe("proxy-helpers", () => {
     });
   });
 
+  describe("createNextProxyHandler", () => {
+    it("returns route handlers mapping with GET, POST, and handler methods", () => {
+      const routeHandlers = createNextProxyHandler(options);
+      expect(typeof routeHandlers.GET).toBe("function");
+      expect(typeof routeHandlers.POST).toBe("function");
+      expect(typeof routeHandlers.PUT).toBe("function");
+      expect(typeof routeHandlers.DELETE).toBe("function");
+      expect(typeof routeHandlers.handler).toBe("function");
+    });
+  });
+
   describe("getAngularProxy", () => {
     it("returns Angular proxy map", () => {
       const angularProxy = getAngularProxy(options);
-      expect(angularProxy["/auth"]).toEqual({
+      expect(angularProxy["/auth"]).toMatchObject({
         target: "https://dev.kodall.io",
         changeOrigin: true,
         secure: true,
       });
+      expect(typeof angularProxy["/auth"].router).toBe("function");
     });
   });
 
